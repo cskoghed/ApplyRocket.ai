@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --glass-bg: rgba(255,255,255,0.04);
+  --glass-strong: rgba(255,255,255,0.06);
+  --glass-border: linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0.06));
+  --accent: #7ff5e1;
+  --accent-2: #6bc8ff;
+  --glass-shadow: 0 8px 30px rgba(2,6,23,0.6), inset 0 1px 0 rgba(255,255,255,0.03);
+  --glass-radius: 1.25rem;
+}
+
+@keyframes floaty {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+  100% { transform: translateY(0px); }
+}
+
+html, body, #__next {
+  height: 100%;
+}
+
+html {
+  background: radial-gradient(1200px 600px at 10% 10%, rgba(127,245,225,0.06), transparent 12%),
+              radial-gradient(800px 400px at 90% 20%, rgba(107,200,255,0.05), transparent 10%),
+              linear-gradient(180deg, #061018 0%, #04050a 100%);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-space-grotesk), sans-serif;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  color: rgba(255,255,255,0.95);
+}
+
+* { box-sizing: border-box; }
+
+::selection { background: rgba(127,245,225,0.25); }
+
+/* Ambient animated blobs for liquid glass vibe */
+body::before, body::after {
+  content: "";
+  position: fixed;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(60px) saturate(120%);
+  opacity: 0.75;
+}
+
+body::before {
+  width: 520px;
+  height: 520px;
+  left: -80px;
+  top: -40px;
+  background: radial-gradient(circle at 30% 30%, rgba(127,245,225,0.22), rgba(107,200,255,0.08) 40%, transparent 60%);
+  transform: translateZ(0);
+}
+
+body::after {
+  width: 420px;
+  height: 420px;
+  right: -60px;
+  bottom: -40px;
+  background: radial-gradient(circle at 70% 40%, rgba(107,200,255,0.20), rgba(127,245,225,0.06) 35%, transparent 60%);
+}
+
+/* Global glass container */
+.app-shell { position: relative; z-index: 10; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 4rem 1.5rem; }
+
+.glass-viewport {
+  position: relative;
+  width: 100%;
+  max-width: 1200px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+  border-radius: 2rem;
+  padding: 2rem;
+  backdrop-filter: blur(18px) saturate(120%);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+  border: 1px solid rgba(255,255,255,0.06);
+  box-shadow: var(--glass-shadow);
+  overflow: hidden;
+}
+
+.glass-panel {
+  border-radius: var(--glass-radius);
+  border: 1px solid rgba(255,255,255,0.06);
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+  backdrop-filter: blur(14px) saturate(110%);
+  padding: 1rem;
+}
+
+.shadow-glow { box-shadow: 0 10px 40px rgba(36,86,160,0.12), 0 2px 8px rgba(2,6,23,0.6); }
+
+.eyebrow { font-family: var(--font-ibm-plex-mono), monospace; font-size: 0.65rem; letter-spacing: 0.28em; text-transform: uppercase; color: var(--accent); }
+
+.primary-button, .secondary-button {
+  display:inline-flex; align-items:center; gap:0.6rem; border-radius:999px; padding:0.7rem 1rem; font-weight:600; font-size:0.95rem; transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.primary-button {
+  background: linear-gradient(90deg, rgba(127,245,225,0.95), rgba(107,200,255,0.92));
+  color: #031017;
+  border: 1px solid rgba(127,245,225,0.22);
+  box-shadow: 0 6px 20px rgba(103,220,190,0.08);
+}
+
+.secondary-button {
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  color: rgba(255,255,255,0.92);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.primary-button:hover, .secondary-button:hover { transform: translateY(-3px); }
+
+input, select, textarea { width:100%; border-radius:1rem; border:1px solid rgba(255,255,255,0.06); background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding:0.85rem 1rem; color:inherit; }
+
+input:focus, select:focus, textarea:focus { outline: none; box-shadow: 0 0 0 6px rgba(127,245,225,0.08); border-color: rgba(127,245,225,0.34); }
+
+.upload-zone { transition: transform 160ms ease, border-color 160ms ease; }
+
+.draft-editor { font-family: var(--font-ibm-plex-mono), monospace; }
+
+/* Slight float animation for prominent panels */
+.floaty { animation: floaty 6s ease-in-out infinite; }
+
