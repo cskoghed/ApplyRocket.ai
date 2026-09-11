@@ -11,6 +11,14 @@ The app now requires an account to access saved workspaces and cover-letter gene
 - Sessions are stored server-side and sent through an HTTP-only cookie.
 - Existing browser-bound workspaces from the earlier cookie-based model are migrated into the user account at sign-in.
 
+## Database
+
+Auth, sessions, and workspaces now use a SQLite database instead of JSON files.
+
+- By default the app stores data in `data/applyrocket.db`.
+- Override the path with `DATABASE_PATH` in `.env.local` if needed.
+- On first startup, existing JSON records from `data/auth` and `data/workspaces` are migrated into SQLite automatically.
+
 ## LLM setup
 
 Cover letter generation now calls a configured LLM provider API directly.

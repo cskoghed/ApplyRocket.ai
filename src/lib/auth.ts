@@ -1,9 +1,8 @@
-import { createHash, randomBytes, scrypt as scryptCallback } from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import { createHash, randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
+import { getDatabase } from "./database";
 import type { AuthUser } from "./types";
 
 const scrypt = promisify(scryptCallback);
@@ -32,36 +31,6 @@ export class AuthError extends Error {
     super(message);
     this.name = "AuthError";
   }
-}
-
-function getAuthDataDir() {
-  const configuredDataDir = process.env.AUTH_DATA_DIR;
-  return configuredDataDir ? path.resolve(configuredDataDir) : path.join(process.cwd(), "data", "auth");
-}
-
-function usersDir() {
-  return path.join(getAuthDataDir(), "users");
-}
-
-function sessionsDir() {
-  return path.join(getAuthDataDir(), "sessions");
-}
-
-async function ensureAuthDataDirs() {
-  await fs.mkdir(usersDir(), { recursive: true });
-  await fs.mkdir(sessionsDir(), { recursive: true });
-}
-
-function userPath(id: string) {
-  return path.join(usersDir(), `${id}.json`);
-}
-
-function sessionPath(tokenHash: string) {
-  return path.join(sessionsDir(), `${tokenHash}.json`);
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
 }
 
 function normalizeEmail(email: string): string {
@@ -94,79 +63,75 @@ function toAuthUser(record: StoredUserRecord): AuthUser {
   return user;
 }
 
-async function readUserRecordById(id: string): Promise<StoredUserRecord | null> {
-  try {
-    const fileContent = await fs.readFile(userPath(id), "utf8");
-    return JSON.parse(fileContent) as StoredUserRecord;
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") {
-      return null;
-    }
-
-    throw error;
-  }
-}
-
-async function findUserRecordByEmail(email: string): Promise<StoredUserRecord | null> {
-  const normalizedEmail = normalizeEmail(email);
-  const fileNames = await fs.readdir(usersDir());
-
-  for (const fileName of fileNames) {
-    if (!fileName.endsWith(".json")) {
-      continue;
-    }
-
-    const fileContent = await fs.readFile(path.join(usersDir(), fileName), "utf8");
-    const record = JSON.parse(fileContent) as StoredUserRecord;
-    if (record.email === normalizedEmail) {
-      return record;
-    }
+function mapUserRow(row: Record<string, unknown> | undefined): StoredUserRecord | null {
+  if (!row) {
+    return null;
   }
 
-  return null;
+  return {
+    id: String(row.id),
+    email: String(row.email),
+    passwordHash: String(row.password_hash),
+    passwordSalt: String(row.password_salt),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
 }
 
-async function writeUserRecord(record: StoredUserRecord) {
-  await fs.writeFile(userPath(record.id), JSON.stringify(record, null, 2), "utf8");
+function mapSessionRow(row: Record<string, unknown> | undefined): StoredSessionRecord | null {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    tokenHash: String(row.token_hash),
+    createdAt: String(row.created_at),
+    expiresAt: String(row.expires_at)
+  };
 }
 
-async function readSessionRecord(token: string): Promise<StoredSessionRecord | null> {
+function readUserRecordById(id: string): StoredUserRecord | null {
+  const database = getDatabase();
+  const row = database.prepare("SELECT * FROM users WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  return mapUserRow(row);
+}
+
+function findUserRecordByEmail(email: string): StoredUserRecord | null {
+  const database = getDatabase();
+  const row = database.prepare("SELECT * FROM users WHERE email = ?").get(normalizeEmail(email)) as Record<string, unknown> | undefined;
+  return mapUserRow(row);
+}
+
+function readSessionRecord(token: string): StoredSessionRecord | null {
   if (!SESSION_TOKEN_PATTERN.test(token)) {
     return null;
   }
 
+  const database = getDatabase();
   const tokenHash = hashSessionToken(token);
+  const row = database.prepare("SELECT * FROM sessions WHERE token_hash = ?").get(tokenHash) as Record<string, unknown> | undefined;
+  const record = mapSessionRow(row);
 
-  try {
-    const fileContent = await fs.readFile(sessionPath(tokenHash), "utf8");
-    const record = JSON.parse(fileContent) as StoredSessionRecord;
-
-    if (new Date(record.expiresAt).getTime() <= Date.now()) {
-      await fs.unlink(sessionPath(tokenHash)).catch(() => undefined);
-      return null;
-    }
-
-    return record;
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") {
-      return null;
-    }
-
-    throw error;
+  if (!record) {
+    return null;
   }
-}
 
-async function writeSessionRecord(record: StoredSessionRecord) {
-  await fs.writeFile(sessionPath(record.tokenHash), JSON.stringify(record, null, 2), "utf8");
+  if (new Date(record.expiresAt).getTime() <= Date.now()) {
+    database.prepare("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash);
+    return null;
+  }
+
+  return record;
 }
 
 export async function registerUser(email: string, password: string): Promise<AuthUser> {
-  await ensureAuthDataDirs();
   validateEmail(email);
   validatePassword(password);
 
   const normalizedEmail = normalizeEmail(email);
-  const existingUser = await findUserRecordByEmail(normalizedEmail);
+  const existingUser = findUserRecordByEmail(normalizedEmail);
   if (existingUser) {
     throw new AuthError("An account with that email already exists.");
   }
@@ -175,7 +140,7 @@ export async function registerUser(email: string, password: string): Promise<Aut
   const passwordSalt = randomBytes(16).toString("hex");
   const passwordHash = await derivePasswordHash(password, passwordSalt);
   const record: StoredUserRecord = {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     email: normalizedEmail,
     passwordHash,
     passwordSalt,
@@ -183,17 +148,19 @@ export async function registerUser(email: string, password: string): Promise<Aut
     updatedAt: now
   };
 
-  await writeUserRecord(record);
+  const database = getDatabase();
+  database
+    .prepare("INSERT INTO users (id, email, password_hash, password_salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(record.id, record.email, record.passwordHash, record.passwordSalt, record.createdAt, record.updatedAt);
+
   return toAuthUser(record);
 }
 
 export async function authenticateUser(email: string, password: string): Promise<AuthUser> {
-  await ensureAuthDataDirs();
   validateEmail(email);
   validatePassword(password);
 
-  const normalizedEmail = normalizeEmail(email);
-  const record = await findUserRecordByEmail(normalizedEmail);
+  const record = findUserRecordByEmail(email);
   if (!record) {
     throw new AuthError("Invalid email or password.");
   }
@@ -207,31 +174,26 @@ export async function authenticateUser(email: string, password: string): Promise
 }
 
 export async function createUserSession(userId: string): Promise<string> {
-  await ensureAuthDataDirs();
   const token = randomBytes(32).toString("hex");
   const tokenHash = hashSessionToken(token);
   const now = new Date();
+  const createdAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + SESSION_COOKIE_MAX_AGE * 1000).toISOString();
 
-  await writeSessionRecord({
-    id: crypto.randomUUID(),
-    userId,
-    tokenHash,
-    createdAt: now.toISOString(),
-    expiresAt
-  });
+  getDatabase()
+    .prepare("INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
+    .run(randomUUID(), userId, tokenHash, createdAt, expiresAt);
 
   return token;
 }
 
 export async function getUserBySessionToken(token: string): Promise<AuthUser | null> {
-  await ensureAuthDataDirs();
-  const sessionRecord = await readSessionRecord(token);
+  const sessionRecord = readSessionRecord(token);
   if (!sessionRecord) {
     return null;
   }
 
-  const userRecord = await readUserRecordById(sessionRecord.userId);
+  const userRecord = readUserRecordById(sessionRecord.userId);
   if (!userRecord) {
     return null;
   }
@@ -244,7 +206,7 @@ export async function deleteUserSession(token: string): Promise<void> {
     return;
   }
 
-  await fs.unlink(sessionPath(hashSessionToken(token))).catch(() => undefined);
+  getDatabase().prepare("DELETE FROM sessions WHERE token_hash = ?").run(hashSessionToken(token));
 }
 
 export async function getCurrentSessionToken(): Promise<string | null> {

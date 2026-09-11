@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { getDatabase, resetDatabaseForTests } from "./database";
 import type { WorkspaceSnapshot } from "./types";
 import { deleteWorkspaceRecord, listWorkspaceRecords, migrateWorkspaceOwner, readWorkspaceRecord, saveWorkspaceRecord, WorkspaceAccessError } from "./workspace-store";
 
@@ -27,18 +28,37 @@ const snapshot: WorkspaceSnapshot = {
 
 describe("workspace store ownership", () => {
   let tempDir: string;
-  const previousDataDir = process.env.WORKSPACE_DATA_DIR;
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const previousWorkspaceDataDir = process.env.WORKSPACE_DATA_DIR;
+  const previousAuthDataDir = process.env.AUTH_DATA_DIR;
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "applyrocket-workspaces-"));
-    process.env.WORKSPACE_DATA_DIR = tempDir;
+    process.env.DATABASE_PATH = path.join(tempDir, "app.db");
+    process.env.WORKSPACE_DATA_DIR = path.join(tempDir, "legacy-workspaces");
+    process.env.AUTH_DATA_DIR = path.join(tempDir, "legacy-auth");
+    resetDatabaseForTests();
   });
 
   afterEach(async () => {
-    if (previousDataDir === undefined) {
+    resetDatabaseForTests();
+
+    if (previousDatabasePath === undefined) {
+      delete process.env.DATABASE_PATH;
+    } else {
+      process.env.DATABASE_PATH = previousDatabasePath;
+    }
+
+    if (previousWorkspaceDataDir === undefined) {
       delete process.env.WORKSPACE_DATA_DIR;
     } else {
-      process.env.WORKSPACE_DATA_DIR = previousDataDir;
+      process.env.WORKSPACE_DATA_DIR = previousWorkspaceDataDir;
+    }
+
+    if (previousAuthDataDir === undefined) {
+      delete process.env.AUTH_DATA_DIR;
+    } else {
+      process.env.AUTH_DATA_DIR = previousAuthDataDir;
     }
 
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -91,5 +111,31 @@ describe("workspace store ownership", () => {
 
     await expect(deleteWorkspaceRecord("workspace-a", "owner-b")).resolves.toBe(false);
     await expect(deleteWorkspaceRecord("workspace-a", "owner-a")).resolves.toBe(true);
+  });
+
+  it("migrates legacy json workspaces into sqlite", async () => {
+    const legacyWorkspaceDir = process.env.WORKSPACE_DATA_DIR!;
+    await fs.mkdir(legacyWorkspaceDir, { recursive: true });
+    await fs.writeFile(
+      path.join(legacyWorkspaceDir, "workspace-1.json"),
+      JSON.stringify({
+        id: "workspace-1",
+        ownerId: "owner-a",
+        brief: snapshot.brief,
+        draft: snapshot.draft,
+        documents: snapshot.documents,
+        editedContent: snapshot.editedContent,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z"
+      }),
+      "utf8"
+    );
+
+    resetDatabaseForTests();
+    const database = getDatabase();
+    const row = database.prepare("SELECT owner_id, edited_content FROM workspaces WHERE id = ?").get("workspace-1") as Record<string, unknown>;
+
+    expect(String(row.owner_id)).toBe("owner-a");
+    expect(String(row.edited_content)).toBe("Hello");
   });
 });
