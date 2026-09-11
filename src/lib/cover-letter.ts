@@ -1,6 +1,8 @@
 import type { CoverLetterDraft, CoverLetterGenerationInput } from "./types";
 import { buildDocumentContextSummary, summarizeDocuments } from "./file-utils";
 
+type LlmProvider = Exclude<CoverLetterDraft["provider"], "template">;
+
 function buildToneGuidance(tone: CoverLetterGenerationInput["brief"]["tone"]): string {
   switch (tone) {
     case "formal":
@@ -68,41 +70,51 @@ export function draftTemplatesForBrief(role: string, company: string): Array<{ i
   ];
 }
 
-function buildFallbackDraft(input: CoverLetterGenerationInput): CoverLetterDraft {
-  const documentNames = input.documents.map((document) => document.name).join(", ") || "the uploaded materials";
-  const greetingTarget = input.brief.company ? `${input.brief.company} team` : "hiring team";
-  const openingLine = `I am excited to apply for the ${input.brief.role} position${input.brief.company ? ` at ${input.brief.company}` : ""}. My background and the materials I shared (${documentNames}) reflect a strong fit for the role, with experience that translates into immediate value for your team.`;
-  const contextLine = `This opportunity stands out because ${input.brief.description.trim().slice(0, 240) || "it matches the kind of work where I can contribute with focus and ownership"}. I bring a practical approach to solving problems, collaborating across teams, and delivering clear results.`;
+export class CoverLetterGenerationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CoverLetterGenerationError";
+  }
+}
 
+function getConfiguredProvider(): LlmProvider {
+  const provider = (process.env.LLM_PROVIDER || "openai").trim().toLowerCase();
+  if (provider === "openai" || provider === "anthropic" || provider === "gemini") {
+    return provider;
+  }
+
+  if (provider === "google" || provider === "google-gemini") {
+    return "gemini";
+  }
+
+  throw new CoverLetterGenerationError("Unsupported LLM_PROVIDER. Use 'openai', 'anthropic', or 'gemini'.");
+}
+
+function buildDraft(input: CoverLetterGenerationInput, content: string, provider: LlmProvider): CoverLetterDraft {
   return {
     title: `${input.brief.role} cover letter`,
-    content: [
-      `Dear ${greetingTarget},`,
-      "",
-      openingLine,
-      "",
-      contextLine,
-      "",
-      "I would welcome the chance to discuss how my background can support your goals and help move the team forward.",
-      "",
-      "Sincerely,",
-      "Your Name"
-    ].join("\n"),
-    summary: `Drafted for ${input.brief.role}${input.brief.company ? ` at ${input.brief.company}` : ""}.`,
+    content,
+    summary: `Generated for ${input.brief.role}${input.brief.company ? ` at ${input.brief.company}` : ""} using ${provider}.`,
     bullets: [
       `Tailored to the ${input.brief.role} role`,
       `Aligned to a ${input.brief.tone} tone`,
-      `Built from ${input.documents.length} uploaded document${input.documents.length === 1 ? "" : "s"}`
+      `Informed by ${input.documents.length} uploaded document${input.documents.length === 1 ? "" : "s"}`
     ],
-    provider: "template",
+    provider,
     generatedAt: new Date().toISOString()
   };
 }
 
-async function tryOpenAI(input: CoverLetterGenerationInput): Promise<CoverLetterDraft | null> {
+function buildRequestError(provider: LlmProvider, response: Response, payloadSnippet: string): CoverLetterGenerationError {
+  return new CoverLetterGenerationError(
+    `${provider} request failed with status ${response.status}. ${payloadSnippet || "No response details were returned."}`
+  );
+}
+
+async function tryOpenAI(input: CoverLetterGenerationInput): Promise<CoverLetterDraft> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return null;
+    throw new CoverLetterGenerationError("OPENAI_API_KEY is not configured.");
   }
 
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
@@ -131,43 +143,119 @@ async function tryOpenAI(input: CoverLetterGenerationInput): Promise<CoverLetter
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI request failed with status ${response.status}`);
+    const payloadSnippet = (await response.text()).slice(0, 400);
+    throw buildRequestError("openai", response, payloadSnippet);
   }
 
   const payload = (await response.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
   };
 
-  const content = payload.choices?.[0]?.message?.content?.trim();
+  const content = payload.choices?.[0]?.message?.content;
   if (!content) {
-    return null;
+    throw new CoverLetterGenerationError("OpenAI returned an empty draft.");
   }
 
-  const normalizedContent = normalizeGeneratedContent(content);
+  return buildDraft(input, normalizeGeneratedContent(content), "openai");
+}
 
-  return {
-    title: `${input.brief.role} cover letter`,
-    content: normalizedContent,
-    summary: `Generated for ${input.brief.role}${input.brief.company ? ` at ${input.brief.company}` : ""} using OpenAI.`,
-    bullets: [
-      `Tailored to the ${input.brief.role} role`,
-      `Aligned to a ${input.brief.tone} tone`,
-      `Informed by ${input.documents.length} uploaded document${input.documents.length === 1 ? "" : "s"}`
-    ],
-    provider: "openai",
-    generatedAt: new Date().toISOString()
+async function tryAnthropic(input: CoverLetterGenerationInput): Promise<CoverLetterDraft> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new CoverLetterGenerationError("ANTHROPIC_API_KEY is not configured.");
+  }
+
+  const model = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest";
+  const prompt = buildCoverLetterPrompt(input);
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 900,
+      temperature: 0.65,
+      system: "You write polished, concise cover letters for job applications.",
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+
+  if (!response.ok) {
+    const payloadSnippet = (await response.text()).slice(0, 400);
+    throw buildRequestError("anthropic", response, payloadSnippet);
+  }
+
+  const payload = (await response.json()) as {
+    content?: Array<{ type?: string; text?: string }>;
   };
+  const content = payload.content
+    ?.filter((item) => item.type === "text")
+    .map((item) => item.text?.trim() ?? "")
+    .join("\n")
+    .trim();
+  if (!content) {
+    throw new CoverLetterGenerationError("Anthropic returned an empty draft.");
+  }
+
+  return buildDraft(input, normalizeGeneratedContent(content), "anthropic");
+}
+
+async function tryGemini(input: CoverLetterGenerationInput): Promise<CoverLetterDraft> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    throw new CoverLetterGenerationError("GEMINI_API_KEY (or GOOGLE_API_KEY) is not configured.");
+  }
+
+  const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  const prompt = buildCoverLetterPrompt(input);
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: "You write polished, concise cover letters for job applications." }]
+      },
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.65
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const payloadSnippet = (await response.text()).slice(0, 400);
+    throw buildRequestError("gemini", response, payloadSnippet);
+  }
+
+  const payload = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const content = payload.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text?.trim() ?? "")
+    .join("\n")
+    .trim();
+
+  if (!content) {
+    throw new CoverLetterGenerationError("Gemini returned an empty draft.");
+  }
+
+  return buildDraft(input, normalizeGeneratedContent(content), "gemini");
 }
 
 export async function generateCoverLetterDraft(input: CoverLetterGenerationInput): Promise<CoverLetterDraft> {
-  try {
-    const openAiDraft = await tryOpenAI(input);
-    if (openAiDraft) {
-      return openAiDraft;
-    }
-  } catch {
-    // Use the local fallback when the API is unavailable.
+  const provider = getConfiguredProvider();
+  switch (provider) {
+    case "openai":
+      return tryOpenAI(input);
+    case "anthropic":
+      return tryAnthropic(input);
+    case "gemini":
+      return tryGemini(input);
   }
-
-  return buildFallbackDraft(input);
 }

@@ -5,6 +5,10 @@ Purpose
 -------
 Quick reference for using the `ApplyRocket Assistant` agent in this repository.
 
+Agent file
+----------
+- [`.github/agents/applyrocket-assistant.agent.md`](.github/agents/applyrocket-assistant.agent.md)
+
 Default behaviors
 -----------------
 - The agent acts as a concise, action-oriented pair programmer.
@@ -27,3 +31,4 @@ Recommended next customizations
 -------------------------------
 - Add specialized agents for docs-only edits or release automation.
 - Expand this file with repository-specific test commands if desired.
+- Delete this file if you want the repo to keep only the agent definition and no extra usage note.

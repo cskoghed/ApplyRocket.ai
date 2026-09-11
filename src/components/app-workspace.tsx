@@ -1,16 +1,19 @@
 "use client";
 
-import type { ChangeEvent, ReactNode } from "react";
+import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { RichTextEditor } from "@/components/rich-text-editor";
-import { buildDocumentContextSummary, createDocumentRecord, detectDocumentKind, formatFileSize, getUploadLimitMessage, validateUpload } from "@/lib/file-utils";
 import { draftTemplatesForBrief } from "@/lib/cover-letter";
 import { htmlToPlainText, plainTextToHtml } from "@/lib/editor-utils";
-import type { CoverLetterDraft, JobBrief, UploadedDocument, WorkspaceRecord, WorkspaceSnapshot } from "@/lib/types";
+import { buildDocumentContextSummary, createDocumentRecord, detectDocumentKind, formatFileSize, getUploadLimitMessage, validateUpload } from "@/lib/file-utils";
+import type { AuthUser, CoverLetterDraft, JobBrief, UploadedDocument, WorkspaceRecord, WorkspaceSnapshot } from "@/lib/types";
 
 type GenerationStatus = "idle" | "loading" | "success" | "error";
+type AuthMode = "login" | "register";
+type WorkspaceListItem = { id: string; updatedAt: string; brief: JobBrief };
+type LocalWorkspaceState = WorkspaceSnapshot & { id?: string };
 
-const STORAGE_KEY = "applyrocket.workspace.v1";
+const STORAGE_KEY = "applyrocket.workspace.v2";
 
 const defaultBrief: JobBrief = {
   role: "Product Manager",
@@ -27,16 +30,34 @@ const defaultDraft: CoverLetterDraft = {
   summary: "Ready for a first draft.",
   bullets: ["Upload files", "Describe the role", "Generate a draft"],
   provider: "template",
-  generatedAt: new Date().toISOString()
+  generatedAt: ""
 };
 
-function safeParseWorkspace(serialized: string | null): WorkspaceRecord | null {
+function providerLabel(provider: CoverLetterDraft["provider"]): string {
+  switch (provider) {
+    case "openai":
+      return "Generated with OpenAI";
+    case "anthropic":
+      return "Generated with Anthropic";
+    case "gemini":
+      return "Generated with Gemini";
+    case "template":
+    default:
+      return "Template draft ready for editing";
+  }
+}
+
+function getWorkspaceStorageKey(userId: string): string {
+  return `${STORAGE_KEY}.${userId}`;
+}
+
+function safeParseWorkspace(serialized: string | null): LocalWorkspaceState | null {
   if (!serialized) {
     return null;
   }
 
   try {
-    return JSON.parse(serialized) as WorkspaceRecord;
+    return JSON.parse(serialized) as LocalWorkspaceState;
   } catch {
     return null;
   }
@@ -59,83 +80,171 @@ export function AppWorkspace() {
   const [editedContent, setEditedContent] = useState(plainTextToHtml(defaultDraft.content));
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [generationStatus, setGenerationStatus] = useState<GenerationStatus>("idle");
-  const [statusMessage, setStatusMessage] = useState("Waiting for your first upload.");
+  const [statusMessage, setStatusMessage] = useState("Sign in to access your workspace.");
   const [hasHydrated, setHasHydrated] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [workspaceList, setWorkspaceList] = useState<Array<{ id: string; updatedAt: string; brief: JobBrief }>>([]);
+  const [workspaceList, setWorkspaceList] = useState<WorkspaceListItem[]>([]);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authPending, setAuthPending] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authMessage, setAuthMessage] = useState("Create an account or sign in to access your saved workspaces.");
+
+  function resetWorkspaceState() {
+    setDocuments([]);
+    setBrief(defaultBrief);
+    setDraft(defaultDraft);
+    setEditedContent(plainTextToHtml(defaultDraft.content));
+    setWorkspaceId(null);
+    setGenerationStatus("idle");
+    setUploadError(null);
+    setSyncStatus("idle");
+    setWorkspaceList([]);
+  }
+
+  function applyWorkspaceRecord(workspace: WorkspaceRecord) {
+    setDocuments(workspace.documents ?? []);
+    setBrief(workspace.brief ?? defaultBrief);
+    setDraft(workspace.draft ?? defaultDraft);
+    setEditedContent(plainTextToHtml(workspace.editedContent ?? workspace.draft?.content ?? defaultDraft.content));
+    setWorkspaceId(workspace.id);
+  }
+
+  async function handleUnauthorized(message: string) {
+    resetWorkspaceState();
+    setAuthUser(null);
+    setHasHydrated(true);
+    setAuthChecked(true);
+    setStatusMessage(message);
+    setAuthMessage(message);
+  }
+
+  async function fetchWorkspaceById(id: string): Promise<WorkspaceRecord | null> {
+    const response = await fetch(`/api/workspaces/${id}`);
+    const payload = (await response.json().catch(() => ({}))) as { workspace?: WorkspaceRecord; error?: string };
+
+    if (response.status === 401) {
+      await handleUnauthorized(payload.error || "Your session expired. Sign in again.");
+      return null;
+    }
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok || !payload.workspace) {
+      throw new Error(payload.error || "Unable to load workspace.");
+    }
+
+    return payload.workspace;
+  }
+
+  async function loadWorkspaceListForUser(): Promise<WorkspaceListItem[]> {
+    const response = await fetch("/api/workspaces");
+    const payload = (await response.json().catch(() => ({}))) as { workspaces?: WorkspaceListItem[]; error?: string };
+
+    if (response.status === 401) {
+      await handleUnauthorized(payload.error || "Your session expired. Sign in again.");
+      return [];
+    }
+
+    if (!response.ok) {
+      throw new Error(payload.error || "Unable to load workspaces.");
+    }
+
+    const workspaces = payload.workspaces ?? [];
+    setWorkspaceList(workspaces);
+    return workspaces;
+  }
+
+  async function hydrateWorkspaceForUser(user: AuthUser) {
+    setHasHydrated(false);
+    const storageKey = getWorkspaceStorageKey(user.id);
+    const restored = safeParseWorkspace(window.localStorage.getItem(storageKey));
+    const storedWorkspaceId = window.localStorage.getItem(`${storageKey}.id`);
+
+    if (restored) {
+      setDocuments(restored.documents ?? []);
+      setBrief(restored.brief ?? defaultBrief);
+      setDraft(restored.draft ?? defaultDraft);
+      setEditedContent(plainTextToHtml(restored.editedContent ?? restored.draft?.content ?? defaultDraft.content));
+      setWorkspaceId(restored.id ?? storedWorkspaceId ?? null);
+      setStatusMessage("Workspace restored from this account's last session.");
+    } else {
+      resetWorkspaceState();
+    }
+
+    try {
+      const workspaces = await loadWorkspaceListForUser();
+      const initialWorkspaceId = storedWorkspaceId ?? restored?.id ?? null;
+
+      if (initialWorkspaceId) {
+        const remoteWorkspace = await fetchWorkspaceById(initialWorkspaceId);
+        if (remoteWorkspace) {
+          applyWorkspaceRecord(remoteWorkspace);
+          setStatusMessage("Loaded your saved workspace.");
+        } else {
+          window.localStorage.removeItem(`${storageKey}.id`);
+          setWorkspaceId(null);
+        }
+      } else if (!restored && workspaces.length > 0) {
+        const remoteWorkspace = await fetchWorkspaceById(workspaces[0]!.id);
+        if (remoteWorkspace) {
+          applyWorkspaceRecord(remoteWorkspace);
+          window.localStorage.setItem(`${storageKey}.id`, remoteWorkspace.id);
+          setStatusMessage("Loaded your latest saved workspace.");
+        }
+      }
+    } finally {
+      setHasHydrated(true);
+    }
+  }
 
   useEffect(() => {
     let active = true;
 
-    async function hydrateWorkspace() {
-      const restored = safeParseWorkspace(window.localStorage.getItem(STORAGE_KEY));
-      const storedWorkspaceId = window.localStorage.getItem(`${STORAGE_KEY}.id`);
-
-      if (restored) {
-        setDocuments(restored.documents ?? []);
-        setBrief(restored.brief ?? defaultBrief);
-        setDraft(restored.draft ?? defaultDraft);
-        setEditedContent(plainTextToHtml(restored.editedContent ?? restored.draft?.content ?? defaultDraft.content));
-        setWorkspaceId(restored.id ?? storedWorkspaceId ?? null);
-        setStatusMessage("Workspace restored from your last session.");
-      }
-
+    async function bootstrap() {
       try {
-        const response = await fetch("/api/workspaces");
-        if (response.ok) {
-          const payload = (await response.json()) as { workspaces?: Array<{ id: string; updatedAt: string; brief: JobBrief }> };
-          if (active) {
-            setWorkspaceList(payload.workspaces ?? []);
-          }
+        const response = await fetch("/api/auth/session");
+        const payload = (await response.json().catch(() => ({}))) as { user?: AuthUser | null };
+
+        if (!active) {
+          return;
+        }
+
+        if (response.ok && payload.user) {
+          setAuthUser(payload.user);
+          setAuthMessage(`Signed in as ${payload.user.email}.`);
+          await hydrateWorkspaceForUser(payload.user);
+        } else {
+          resetWorkspaceState();
+          setHasHydrated(true);
         }
       } catch {
-        // Remote list is optional.
-      }
-
-      if (!storedWorkspaceId) {
-        try {
-          const response = await fetch("/api/workspaces", { method: "GET" });
-          if (response.ok) {
-            const payload = (await response.json()) as { workspaces?: Array<{ id: string; updatedAt: string; brief: JobBrief }> };
-            if (active && !storedWorkspaceId && payload.workspaces?.length) {
-              const recent = payload.workspaces[0];
-              window.localStorage.setItem(`${STORAGE_KEY}.id`, recent.id);
-              setWorkspaceId(recent.id);
-
-              const workspaceResponse = await fetch(`/api/workspaces/${recent.id}`);
-              if (workspaceResponse.ok) {
-                const workspacePayload = (await workspaceResponse.json()) as { workspace?: WorkspaceRecord };
-                const workspace = workspacePayload.workspace;
-                if (workspace) {
-                  setDocuments(workspace.documents ?? []);
-                  setBrief(workspace.brief ?? defaultBrief);
-                  setDraft(workspace.draft ?? defaultDraft);
-                  setEditedContent(plainTextToHtml(workspace.editedContent ?? workspace.draft?.content ?? defaultDraft.content));
-                  setStatusMessage("Loaded your latest saved workspace from the server.");
-                }
-              }
-            }
-          }
-        } catch {
-          // Use local state if server persistence is unavailable.
+        if (active) {
+          setAuthMessage("Unable to verify your session right now.");
+          setHasHydrated(true);
         }
-      }
-
-      if (active) {
-        setHasHydrated(true);
+      } finally {
+        if (active) {
+          setAuthChecked(true);
+        }
       }
     }
 
-    void hydrateWorkspace();
+    void bootstrap();
 
     return () => {
       active = false;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!hasHydrated) {
+    if (!hasHydrated || !authUser) {
       return;
     }
 
@@ -146,37 +255,96 @@ export function AppWorkspace() {
       editedContent: htmlToPlainText(editedContent)
     };
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    if (workspaceId) {
-      const timer = window.setTimeout(async () => {
-        setSyncStatus("saving");
+    const storageKey = getWorkspaceStorageKey(authUser.id);
+    window.localStorage.setItem(storageKey, JSON.stringify({ ...payload, id: workspaceId ?? undefined }));
 
-        try {
-          const response = await fetch(`/api/workspaces/${workspaceId}`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(payload)
-          });
-
-          if (!response.ok) {
-            throw new Error("Failed to save workspace.");
-          }
-
-          setSyncStatus("saved");
-        } catch {
-          setSyncStatus("error");
-        }
-      }, 500);
-
-      return () => window.clearTimeout(timer);
+    if (!workspaceId) {
+      return;
     }
-  }, [brief, draft, documents, editedContent, hasHydrated, workspaceId]);
+
+    const timer = window.setTimeout(async () => {
+      setSyncStatus("saving");
+
+      try {
+        const response = await fetch(`/api/workspaces/${workspaceId}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        });
+        const result = (await response.json().catch(() => ({}))) as { error?: string };
+
+        if (response.status === 401) {
+          await handleUnauthorized(result.error || "Your session expired. Sign in again.");
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(result.error || "Failed to save workspace.");
+        }
+
+        setSyncStatus("saved");
+      } catch {
+        setSyncStatus("error");
+      }
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser, brief, documents, draft, editedContent, hasHydrated, workspaceId]);
 
   const canGenerate = useMemo(() => {
     return brief.role.trim().length > 0 && brief.company.trim().length > 0 && brief.description.trim().length > 0;
   }, [brief.company, brief.description, brief.role]);
+
+  async function submitAuthForm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAuthPending(true);
+    setAuthMessage(authMode === "login" ? "Signing you in..." : "Creating your account...");
+
+    try {
+      const response = await fetch(authMode === "login" ? "/api/auth/login" : "/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          email: authEmail,
+          password: authPassword
+        })
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as { user?: AuthUser; error?: string };
+      if (!response.ok || !payload.user) {
+        throw new Error(payload.error || "Authentication failed.");
+      }
+
+      setAuthUser(payload.user);
+      setAuthPassword("");
+      setAuthMessage(authMode === "login" ? `Signed in as ${payload.user.email}.` : `Account created for ${payload.user.email}.`);
+      setStatusMessage("Loading your workspace...");
+      await hydrateWorkspaceForUser(payload.user);
+    } catch (error) {
+      setAuthMessage(error instanceof Error ? error.message : "Authentication failed.");
+    } finally {
+      setAuthPending(false);
+      setAuthChecked(true);
+    }
+  }
+
+  async function signOut() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      resetWorkspaceState();
+      setAuthUser(null);
+      setHasHydrated(true);
+      setAuthChecked(true);
+      setStatusMessage("Signed out.");
+      setAuthMessage("Signed out. Sign back in to access your saved workspaces.");
+    }
+  }
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -193,9 +361,7 @@ export function AppWorkspace() {
     }
 
     const startIndex = documents.length;
-    const records = await Promise.all(
-      files.map((file, index) => createDocumentRecord(file, detectDocumentKind(file, startIndex + index === 0)))
-    );
+    const records = await Promise.all(files.map((file, index) => createDocumentRecord(file, detectDocumentKind(file, startIndex + index === 0))));
 
     setUploadError(null);
     setDocuments((current) => [...current, ...records].slice(0, 8));
@@ -242,6 +408,11 @@ export function AppWorkspace() {
   }
 
   async function generateDraft() {
+    if (!authUser) {
+      await handleUnauthorized("Sign in to generate cover letters.");
+      return;
+    }
+
     if (!canGenerate) {
       setGenerationStatus("error");
       setStatusMessage("Fill in the role, company, and job description before generating.");
@@ -263,7 +434,12 @@ export function AppWorkspace() {
         })
       });
 
-      const payload = (await response.json()) as { draft?: CoverLetterDraft; error?: string };
+      const payload = (await response.json().catch(() => ({}))) as { draft?: CoverLetterDraft; error?: string };
+      if (response.status === 401) {
+        await handleUnauthorized(payload.error || "Your session expired. Sign in again.");
+        return;
+      }
+
       if (!response.ok || !payload.draft) {
         throw new Error(payload.error || "Failed to generate a draft.");
       }
@@ -290,6 +466,11 @@ export function AppWorkspace() {
   }
 
   async function createWorkspace() {
+    if (!authUser) {
+      await handleUnauthorized("Sign in to save workspaces.");
+      return;
+    }
+
     try {
       const response = await fetch("/api/workspaces", {
         method: "POST",
@@ -304,61 +485,117 @@ export function AppWorkspace() {
         })
       });
 
-      if (!response.ok) {
-        throw new Error("Unable to create workspace.");
+      const payload = (await response.json().catch(() => ({}))) as { workspace?: WorkspaceRecord; error?: string };
+      if (response.status === 401) {
+        await handleUnauthorized(payload.error || "Your session expired. Sign in again.");
+        return;
       }
 
-      const payload = (await response.json()) as { workspace?: WorkspaceRecord };
-      if (payload.workspace) {
-        window.localStorage.setItem(`${STORAGE_KEY}.id`, payload.workspace.id);
-        setWorkspaceId(payload.workspace.id);
-        setWorkspaceList((current) => [
-          { id: payload.workspace!.id, updatedAt: payload.workspace!.updatedAt, brief: payload.workspace!.brief },
-          ...current.filter((workspace) => workspace.id !== payload.workspace!.id)
-        ]);
-        setStatusMessage("Workspace created on the server.");
+      if (!response.ok || !payload.workspace) {
+        throw new Error(payload.error || "Unable to create workspace.");
       }
+
+      const createdWorkspace = payload.workspace;
+      const storageKey = getWorkspaceStorageKey(authUser.id);
+      window.localStorage.setItem(`${storageKey}.id`, createdWorkspace.id);
+      setWorkspaceId(createdWorkspace.id);
+      setWorkspaceList((current) => [
+        { id: createdWorkspace.id, updatedAt: createdWorkspace.updatedAt, brief: createdWorkspace.brief },
+        ...current.filter((workspace) => workspace.id !== createdWorkspace.id)
+      ]);
+      setStatusMessage("Workspace created on the server.");
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Workspace creation failed.");
     }
   }
 
   async function loadWorkspace(id: string) {
+    if (!authUser) {
+      await handleUnauthorized("Sign in to load workspaces.");
+      return;
+    }
+
     try {
-      const response = await fetch(`/api/workspaces/${id}`);
-      if (!response.ok) {
+      const workspace = await fetchWorkspaceById(id);
+      if (!workspace) {
         throw new Error("Workspace not found.");
       }
 
-      const payload = (await response.json()) as { workspace?: WorkspaceRecord };
-      if (!payload.workspace) {
-        throw new Error("Workspace not found.");
-      }
-
-      const workspace = payload.workspace;
-      setDocuments(workspace.documents ?? []);
-      setBrief(workspace.brief ?? defaultBrief);
-      setDraft(workspace.draft ?? defaultDraft);
-      setEditedContent(plainTextToHtml(workspace.editedContent ?? workspace.draft?.content ?? defaultDraft.content));
-      window.localStorage.setItem(`${STORAGE_KEY}.id`, workspace.id);
-      setWorkspaceId(workspace.id);
+      applyWorkspaceRecord(workspace);
+      const storageKey = getWorkspaceStorageKey(authUser.id);
+      window.localStorage.setItem(`${storageKey}.id`, workspace.id);
       setStatusMessage(`Loaded workspace ${workspace.id}.`);
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Unable to load workspace.");
     }
   }
 
+  if (!authChecked) {
+    return (
+      <section className="glass-panel mx-auto max-w-xl rounded-[2rem] p-8 shadow-glow">
+        <p className="eyebrow">ApplyRocket.AI</p>
+        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white">Loading your secure workspace...</h1>
+        <p className="mt-3 text-sm leading-6 text-slate-300">Checking your session and restoring the workspaces that belong to your account.</p>
+      </section>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <section className="glass-panel mx-auto max-w-xl rounded-[2rem] p-8 shadow-glow">
+        <p className="eyebrow">ApplyRocket.AI</p>
+        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white">Secure sign-in for your saved workspaces</h1>
+        <p className="mt-3 text-sm leading-6 text-slate-300">
+          Your account now protects saved drafts and workspace recovery. Passwords are stored as one-way hashes, never plain text.
+        </p>
+
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          <button className={`secondary-button ${authMode === "login" ? "border-cyan-300/60 text-white" : ""}`} onClick={() => setAuthMode("login")} type="button">
+            Sign in
+          </button>
+          <button className={`secondary-button ${authMode === "register" ? "border-cyan-300/60 text-white" : ""}`} onClick={() => setAuthMode("register")} type="button">
+            Create account
+          </button>
+        </div>
+
+        <form className="mt-6 space-y-4" onSubmit={submitAuthForm}>
+          <Field label="Email address">
+            <input autoComplete="email" type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="you@example.com" />
+          </Field>
+          <Field label="Password">
+            <input
+              autoComplete={authMode === "login" ? "current-password" : "new-password"}
+              type="password"
+              value={authPassword}
+              onChange={(event) => setAuthPassword(event.target.value)}
+              placeholder="At least 8 characters"
+            />
+          </Field>
+          <button className="primary-button w-full" disabled={authPending} type="submit">
+            {authPending ? (authMode === "login" ? "Signing in..." : "Creating account...") : authMode === "login" ? "Sign in" : "Create account"}
+          </button>
+        </form>
+
+        <p className="mt-4 text-sm text-slate-300">{authMessage}</p>
+      </section>
+    );
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
       <section className="glass-panel space-y-6 rounded-[2rem] p-6 shadow-glow">
         <div>
-          <p className="eyebrow">ApplyRocket.AI</p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="eyebrow">ApplyRocket.AI</p>
+            <button className="secondary-button text-xs" onClick={signOut} type="button">
+              Sign out
+            </button>
+          </div>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white">
             Upload your application materials, generate a cover letter, and rewrite it in place.
           </h1>
           <p className="mt-3 max-w-md text-sm leading-6 text-slate-300">
-            This first slice gives you a working workspace for uploading documents, shaping the job brief,
-            and iterating on the draft without leaving the page.
+            Signed in as {authUser.email}. Your saved workspaces are only visible to your account.
           </p>
         </div>
 
@@ -368,9 +605,7 @@ export function AppWorkspace() {
               <p className="text-sm font-medium text-white">Upload CV and supporting files</p>
               <p className="mt-1 text-xs text-slate-400">PDF, DOCX, TXT, MD, and similar documents.</p>
             </div>
-            <span className="rounded-full bg-cyan-400/15 px-3 py-1 text-xs font-medium text-cyan-200">
-              Browse
-            </span>
+            <span className="rounded-full bg-cyan-400/15 px-3 py-1 text-xs font-medium text-cyan-200">Browse</span>
           </div>
           <input className="sr-only" multiple type="file" onChange={handleUpload} />
         </label>
@@ -379,31 +614,16 @@ export function AppWorkspace() {
 
         <div className="space-y-4">
           <Field label="Target role">
-            <input
-              value={brief.role}
-              onChange={(event) => setBrief((current) => ({ ...current, role: event.target.value }))}
-              placeholder="Senior Product Manager"
-            />
+            <input value={brief.role} onChange={(event) => setBrief((current) => ({ ...current, role: event.target.value }))} placeholder="Senior Product Manager" />
           </Field>
           <Field label="Company">
-            <input
-              value={brief.company}
-              onChange={(event) => setBrief((current) => ({ ...current, company: event.target.value }))}
-              placeholder="ApplyRocket"
-            />
+            <input value={brief.company} onChange={(event) => setBrief((current) => ({ ...current, company: event.target.value }))} placeholder="ApplyRocket" />
           </Field>
           <Field label="Location">
-            <input
-              value={brief.location}
-              onChange={(event) => setBrief((current) => ({ ...current, location: event.target.value }))}
-              placeholder="Remote"
-            />
+            <input value={brief.location} onChange={(event) => setBrief((current) => ({ ...current, location: event.target.value }))} placeholder="Remote" />
           </Field>
           <Field label="Tone">
-            <select
-              value={brief.tone}
-              onChange={(event) => setBrief((current) => ({ ...current, tone: event.target.value as JobBrief["tone"] }))}
-            >
+            <select value={brief.tone} onChange={(event) => setBrief((current) => ({ ...current, tone: event.target.value as JobBrief["tone"] }))}>
               <option value="formal">Formal</option>
               <option value="confident">Confident</option>
               <option value="warm">Warm</option>
@@ -411,12 +631,7 @@ export function AppWorkspace() {
             </select>
           </Field>
           <Field label="Job description">
-            <textarea
-              rows={7}
-              value={brief.description}
-              onChange={(event) => setBrief((current) => ({ ...current, description: event.target.value }))}
-              placeholder="Paste the job posting or a working summary here."
-            />
+            <textarea rows={7} value={brief.description} onChange={(event) => setBrief((current) => ({ ...current, description: event.target.value }))} placeholder="Paste the job posting or a working summary here." />
           </Field>
         </div>
 
@@ -424,7 +639,7 @@ export function AppWorkspace() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-white">Saved workspaces</p>
-              <p className="text-xs text-slate-400">Server-backed recovery from the local JSON store.</p>
+              <p className="text-xs text-slate-400">Server-backed recovery for the workspaces attached to your account.</p>
             </div>
             <button className="secondary-button text-xs" type="button" onClick={createWorkspace}>
               Save as new
@@ -448,20 +663,13 @@ export function AppWorkspace() {
                 </button>
               ))
             ) : (
-              <p className="rounded-2xl border border-dashed border-white/10 p-3 text-xs text-slate-400">
-                No saved workspaces yet. Click save to create one.
-              </p>
+              <p className="rounded-2xl border border-dashed border-white/10 p-3 text-xs text-slate-400">No saved workspaces yet. Click save to create one.</p>
             )}
           </div>
         </div>
 
-        <button
-          className="primary-button w-full"
-          disabled={!canGenerate || generationStatus === "loading"}
-          onClick={generateDraft}
-          type="button"
-        >
-          {generationStatus === "loading" ? "Generating…" : "Generate cover letter"}
+        <button className="primary-button w-full" disabled={!canGenerate || generationStatus === "loading"} onClick={generateDraft} type="button">
+          {generationStatus === "loading" ? "Generating..." : "Generate cover letter"}
         </button>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -543,16 +751,12 @@ export function AppWorkspace() {
         </div>
 
         <div className="mt-6 flex-1 rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-4">
-          <RichTextEditor
-            value={editedContent}
-            onChange={setEditedContent}
-            templates={draftTemplatesForBrief(brief.role, brief.company)}
-          />
+          <RichTextEditor value={editedContent} onChange={setEditedContent} templates={draftTemplatesForBrief(brief.role, brief.company)} />
         </div>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
-          <span>{draft.provider === "openai" ? "Generated with OpenAI" : "Template draft ready for editing"}</span>
-          <span>Last generated {new Date(draft.generatedAt).toLocaleString()}</span>
+          <span>{providerLabel(draft.provider)}</span>
+          <span>{hasHydrated && draft.generatedAt ? `Last generated ${new Date(draft.generatedAt).toLocaleString()}` : "Last generated -"}</span>
           <span>Sync: {syncStatus}</span>
         </div>
       </section>
@@ -568,4 +772,6 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     </label>
   );
 }
+
+
 

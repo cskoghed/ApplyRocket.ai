@@ -21,13 +21,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased`}>
-        <div className="app-shell">
-          <div className="glass-viewport floaty">
-            {children}
-          </div>
-        </div>
-      </body>
+      <body className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased`}>{children}</body>
     </html>
   );
 }

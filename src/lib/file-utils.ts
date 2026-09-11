@@ -1,4 +1,4 @@
-import { createTextPreview, extractUploadedText } from "./document-extraction";
+import { extractUploadedText } from "./document-extraction";
 import type { DocumentKind, UploadedDocument } from "./types";
 
 const MAX_PREVIEW_CHARS = 2_000;
@@ -51,17 +51,33 @@ export function formatFileSize(bytes: number): string {
   return `${(kibibytes / 1024).toFixed(1)} MB`;
 }
 
+export function createSecureDocumentId(): string {
+  const runtimeCrypto = globalThis.crypto;
+  if (typeof runtimeCrypto?.randomUUID === "function") {
+    return runtimeCrypto.randomUUID();
+  }
+
+  if (typeof runtimeCrypto?.getRandomValues === "function") {
+    const bytes = runtimeCrypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
+  throw new Error("Secure random ID generation is unavailable in this browser.");
+}
+
 export async function createDocumentRecord(file: File, kind: DocumentKind): Promise<UploadedDocument> {
   const extractedText = await extractUploadedText(file);
-  const preview = extractedText ? createTextPreview(extractedText) : await readFilePreview(file);
 
   return {
-    id: crypto.randomUUID(),
+    id: createSecureDocumentId(),
     name: file.name,
     kind,
     type: file.type || "application/octet-stream",
     size: file.size,
-    preview,
     extractedText
   };
 }
@@ -79,24 +95,26 @@ export async function readFilePreview(file: File): Promise<string> {
   }
 }
 
-export function summarizeDocuments(documents: Array<Pick<UploadedDocument, "name" | "kind" | "preview" | "extractedText">>): string {
+type LegacyDocumentSummaryInput = Pick<UploadedDocument, "name" | "kind" | "extractedText"> & { preview?: string };
+
+export function summarizeDocuments(documents: LegacyDocumentSummaryInput[]): string {
   return documents
     .map((document, index) => {
-      const preview = (document.extractedText || document.preview).trim();
+      const preview = (document.extractedText || ("preview" in document ? document.preview : "") || "").trim();
       const previewSuffix = preview ? `\nExcerpt:\n${preview.slice(0, 400)}` : "";
       return `${index + 1}. ${document.kind.toUpperCase()} - ${document.name}${previewSuffix}`;
     })
     .join("\n\n");
 }
 
-export function buildDocumentContextSummary(documents: Array<Pick<UploadedDocument, "name" | "kind" | "preview" | "type" | "extractedText">>): string {
+export function buildDocumentContextSummary(documents: Array<Pick<UploadedDocument, "name" | "kind" | "type" | "extractedText"> & { preview?: string }>): string {
   if (!documents.length) {
     return "No supporting documents were uploaded.";
   }
 
   return documents
     .map((document, index) => {
-      const excerpt = (document.extractedText || document.preview).trim().replace(/\s+/g, " ").slice(0, 240);
+      const excerpt = (document.extractedText || ("preview" in document ? document.preview : "") || "").trim().replace(/\s+/g, " ").slice(0, 240);
       return [
         `${index + 1}. ${document.kind.toUpperCase()}: ${document.name}`,
         `Type: ${document.type}`,

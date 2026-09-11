@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { deleteWorkspaceRecord, readWorkspaceRecord, saveWorkspaceRecord } from "@/lib/workspace-store";
+import { getAuthenticatedUser } from "@/lib/auth";
+import { deleteWorkspaceRecord, readWorkspaceRecord, saveWorkspaceRecord, WorkspaceAccessError } from "@/lib/workspace-store";
 import type { WorkspaceSnapshot } from "@/lib/types";
 
 function isSnapshot(body: unknown): body is WorkspaceSnapshot {
@@ -11,9 +12,18 @@ function isSnapshot(body: unknown): body is WorkspaceSnapshot {
   return Boolean(candidate.brief && candidate.draft && Array.isArray(candidate.documents) && typeof candidate.editedContent === "string");
 }
 
+function unauthorizedResponse() {
+  return NextResponse.json({ error: "Sign in to access workspaces." }, { status: 401 });
+}
+
 export async function GET(_request: Request, { params }: { params: Promise<{ workspaceId: string }> }) {
+  const user = await getAuthenticatedUser();
+  if (!user) {
+    return unauthorizedResponse();
+  }
+
   const { workspaceId } = await params;
-  const record = await readWorkspaceRecord(workspaceId);
+  const record = await readWorkspaceRecord(workspaceId, user.id);
 
   if (!record) {
     return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
@@ -23,6 +33,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ wor
 }
 
 export async function PUT(request: Request, { params }: { params: Promise<{ workspaceId: string }> }) {
+  const user = await getAuthenticatedUser();
+  if (!user) {
+    return unauthorizedResponse();
+  }
+
   const { workspaceId } = await params;
   const body = await request.json().catch(() => null);
 
@@ -30,12 +45,25 @@ export async function PUT(request: Request, { params }: { params: Promise<{ work
     return NextResponse.json({ error: "Invalid workspace payload." }, { status: 400 });
   }
 
-  const workspace = await saveWorkspaceRecord(workspaceId, body);
-  return NextResponse.json({ workspace });
+  try {
+    const workspace = await saveWorkspaceRecord(workspaceId, body, user.id);
+    return NextResponse.json({ workspace });
+  } catch (error) {
+    if (error instanceof WorkspaceAccessError) {
+      return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
+    }
+
+    throw error;
+  }
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ workspaceId: string }> }) {
+  const user = await getAuthenticatedUser();
+  if (!user) {
+    return unauthorizedResponse();
+  }
+
   const { workspaceId } = await params;
-  const deleted = await deleteWorkspaceRecord(workspaceId);
+  const deleted = await deleteWorkspaceRecord(workspaceId, user.id);
   return NextResponse.json({ deleted });
 }

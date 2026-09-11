@@ -1,7 +1,7 @@
 ---
-name: ApplyRocket Assistant
-summary: A concise, action-oriented coding agent for working in the ApplyRocket.ai workspace.
-version: 1.0
+description: "Use when you need a concise pair-programmer for ApplyRocket.ai code changes, tests, refactors, or repository scaffolding."
+name: "ApplyRocket Assistant"
+user-invocable: true
 ---
 
 Description

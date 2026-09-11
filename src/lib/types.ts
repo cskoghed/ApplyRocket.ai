@@ -6,7 +6,6 @@ export type UploadedDocument = {
   kind: DocumentKind;
   type: string;
   size: number;
-  preview: string;
   extractedText: string;
 };
 
@@ -20,7 +19,7 @@ export type JobBrief = {
 
 export type CoverLetterGenerationInput = {
   brief: JobBrief;
-  documents: Array<Pick<UploadedDocument, "name" | "kind" | "type" | "size" | "preview" | "extractedText">>;
+  documents: Array<Pick<UploadedDocument, "name" | "kind" | "type" | "size" | "extractedText">>;
 };
 
 export type CoverLetterDraft = {
@@ -28,7 +27,7 @@ export type CoverLetterDraft = {
   content: string;
   summary: string;
   bullets: string[];
-  provider: "template" | "openai";
+  provider: "template" | "openai" | "anthropic" | "gemini";
   generatedAt: string;
 };
 
@@ -41,6 +40,17 @@ export type WorkspaceSnapshot = {
 
 export type WorkspaceRecord = WorkspaceSnapshot & {
   id: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StoredWorkspaceRecord = WorkspaceRecord & {
+  ownerId?: string;
+};
+
+export type AuthUser = {
+  id: string;
+  email: string;
   createdAt: string;
   updatedAt: string;
 };
