@@ -3,53 +3,106 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: light;
+
+  --color-bg: #f6f7fb;
+  --color-bg-accent-a: rgba(79, 70, 229, 0.06);
+  --color-bg-accent-b: rgba(14, 116, 144, 0.05);
+
+  --surface-panel: rgba(255, 255, 255, 0.86);
+  --surface-panel-border: rgba(15, 23, 42, 0.08);
+  --surface-inset: rgba(15, 23, 42, 0.035);
+  --surface-inset-border: rgba(15, 23, 42, 0.08);
+  --surface-sunken: rgba(15, 23, 42, 0.04);
+  --surface-sunken-border: rgba(15, 23, 42, 0.08);
+
+  --text-heading: #0f172a;
+  --text-body: #3f4a5e;
+  --text-muted: #6b7688;
+  --text-faint: #97a1b1;
+
+  --accent: #4338ca;
+  --accent-strong: #372aa8;
+  --accent-contrast: #ffffff;
+  --accent-soft-bg: rgba(67, 56, 202, 0.08);
+  --accent-soft-border: rgba(67, 56, 202, 0.22);
+  --accent-soft-text: #4338ca;
+
+  --danger: #b91c1c;
+  --danger-border: rgba(185, 28, 28, 0.28);
+  --danger-soft-bg: rgba(185, 28, 28, 0.07);
+
+  --field-bg: rgba(15, 23, 42, 0.03);
+  --field-border: rgba(15, 23, 42, 0.14);
+  --field-focus-ring: rgba(67, 56, 202, 0.16);
+
+  --shadow-panel: 0 1px 1px rgba(15, 23, 42, 0.02), 0 18px 45px -18px rgba(15, 23, 42, 0.18);
+}
+
+:root.dark {
   color-scheme: dark;
-  --background: #060913;
-  --surface: rgba(10, 15, 28, 0.74);
-  --surface-strong: rgba(9, 12, 24, 0.96);
-  --border: rgba(255, 255, 255, 0.12);
-  --accent: #7ff5e1;
-  --accent-2: #6bc8ff;
-}
 
-html {
-  background: var(--background);
-}
+  --color-bg: #0a0d16;
+  --color-bg-accent-a: rgba(99, 102, 241, 0.1);
+  --color-bg-accent-b: rgba(20, 184, 166, 0.06);
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(127, 245, 225, 0.22), transparent 34%),
-    radial-gradient(circle at 85% 10%, rgba(107, 200, 255, 0.18), transparent 26%),
-    linear-gradient(180deg, #090d19 0%, #05070d 100%);
-  color: white;
-  font-family: var(--font-space-grotesk), sans-serif;
+  --surface-panel: rgba(17, 21, 34, 0.72);
+  --surface-panel-border: rgba(255, 255, 255, 0.08);
+  --surface-inset: rgba(255, 255, 255, 0.04);
+  --surface-inset-border: rgba(255, 255, 255, 0.09);
+  --surface-sunken: rgba(2, 6, 20, 0.55);
+  --surface-sunken-border: rgba(255, 255, 255, 0.08);
+
+  --text-heading: #f4f6fb;
+  --text-body: #c2c9d6;
+  --text-muted: #8b93a7;
+  --text-faint: #656e83;
+
+  --accent: #8b8ff5;
+  --accent-strong: #a5a8f8;
+  --accent-contrast: #0c0f1c;
+  --accent-soft-bg: rgba(139, 143, 245, 0.14);
+  --accent-soft-border: rgba(139, 143, 245, 0.32);
+  --accent-soft-text: #c2c4fb;
+
+  --danger: #f28b82;
+  --danger-border: rgba(242, 139, 130, 0.32);
+  --danger-soft-bg: rgba(242, 139, 130, 0.12);
+
+  --field-bg: rgba(2, 6, 20, 0.5);
+  --field-border: rgba(255, 255, 255, 0.1);
+  --field-focus-ring: rgba(139, 143, 245, 0.18);
+
+  --shadow-panel: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 24px 60px -20px rgba(0, 0, 0, 0.55);
 }
 
 * {
   box-sizing: border-box;
 }
 
-::selection {
-  background: rgba(127, 245, 225, 0.35);
+html {
+  background: var(--color-bg);
 }
 
-.ambient-gradient {
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--color-bg);
   background-image:
-    radial-gradient(circle at 20% 20%, rgba(127, 245, 225, 0.2), transparent 22%),
-    radial-gradient(circle at 80% 18%, rgba(107, 200, 255, 0.14), transparent 20%),
-    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
-  background-size: auto, auto, 60px 60px, 60px 60px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.96), transparent 95%);
+    radial-gradient(ellipse 60% 40% at 12% 0%, var(--color-bg-accent-a), transparent 60%),
+    radial-gradient(ellipse 50% 35% at 90% 8%, var(--color-bg-accent-b), transparent 60%);
+  background-repeat: no-repeat;
+  color: var(--text-body);
+  font-family: var(--font-space-grotesk), sans-serif;
+  transition: background-color 200ms ease, color 200ms ease;
 }
 
-.glass-panel {
-  border: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.035));
-  backdrop-filter: blur(22px);
+::selection {
+  background: var(--accent-soft-bg);
+  color: var(--text-heading);
 }
+
+/* Typography helpers */
 
 .eyebrow {
   font-family: var(--font-ibm-plex-mono), monospace;
@@ -58,6 +111,87 @@ body {
   text-transform: uppercase;
   color: var(--accent);
 }
+
+.text-heading {
+  color: var(--text-heading);
+}
+
+.text-body {
+  color: var(--text-body);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+.text-faint {
+  color: var(--text-faint);
+}
+
+.text-accent {
+  color: var(--accent);
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+/* Surfaces */
+
+.surface-panel {
+  border: 1px solid var(--surface-panel-border);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(18px);
+}
+
+.surface-inset {
+  border-color: var(--surface-inset-border);
+  background: var(--surface-inset);
+}
+
+.surface-sunken {
+  border-color: var(--surface-sunken-border);
+  background: var(--surface-sunken);
+}
+
+.border-subtle {
+  border-color: var(--surface-inset-border);
+}
+
+.upload-zone.surface-sunken {
+  border-style: dashed;
+}
+
+.upload-zone:hover {
+  border-color: var(--accent-soft-border);
+}
+
+.workspace-row {
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.workspace-row:hover {
+  border-color: var(--accent-soft-border);
+  transform: translateY(-1px);
+}
+
+.bg-accent-soft {
+  background: var(--accent-soft-bg);
+  color: var(--accent-soft-text);
+}
+
+.border-accent-soft {
+  border-color: var(--accent-soft-border);
+}
+
+.danger-banner {
+  border: 1px solid var(--danger-border);
+  background: var(--danger-soft-bg);
+  color: var(--danger);
+}
+
+/* Buttons */
 
 .primary-button,
 .secondary-button {
@@ -72,43 +206,87 @@ body {
   transition:
     transform 160ms ease,
     border-color 160ms ease,
-    background-color 160ms ease;
+    background-color 160ms ease,
+    color 160ms ease;
 }
 
 .primary-button {
-  border: 1px solid rgba(127, 245, 225, 0.25);
-  background: linear-gradient(135deg, rgba(127, 245, 225, 0.95), rgba(107, 200, 255, 0.92));
-  color: #031017;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.primary-button:hover:not(:disabled) {
+  background: var(--accent-strong);
 }
 
 .secondary-button {
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--surface-inset-border);
+  background: var(--surface-inset);
+  color: var(--text-body);
 }
 
-.primary-button:hover,
-.secondary-button:hover,
+.secondary-button:hover:not(:disabled) {
+  border-color: var(--accent-soft-border);
+  color: var(--text-heading);
+}
+
+.secondary-button.is-active {
+  border-color: var(--accent-soft-border);
+  background: var(--accent-soft-bg);
+  color: var(--accent-soft-text);
+}
+
+.primary-button:hover:not(:disabled),
+.secondary-button:hover:not(:disabled),
 .upload-zone:hover {
   transform: translateY(-1px);
 }
 
 .primary-button:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.5;
   transform: none;
 }
+
+/* Theme toggle */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.25rem;
+  width: 2.25rem;
+  border-radius: 999px;
+  border: 1px solid var(--surface-inset-border);
+  background: var(--surface-inset);
+  color: var(--text-body);
+  transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease;
+}
+
+.theme-toggle:hover {
+  color: var(--text-heading);
+  border-color: var(--accent-soft-border);
+}
+
+.theme-toggle svg {
+  height: 1.1rem;
+  width: 1.1rem;
+}
+
+/* Form fields */
 
 input,
 select,
 textarea {
   width: 100%;
   border-radius: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid var(--field-border);
+  background: var(--field-bg);
   padding: 0.9rem 1rem;
-  color: white;
+  color: var(--text-heading);
   outline: none;
+  font-family: inherit;
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
@@ -117,16 +295,21 @@ textarea {
 
 input::placeholder,
 textarea::placeholder {
-  color: rgba(226, 232, 240, 0.42);
+  color: var(--text-faint);
 }
 
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: rgba(127, 245, 225, 0.45);
-  box-shadow: 0 0 0 4px rgba(127, 245, 225, 0.08);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--field-focus-ring);
 }
 
 .draft-editor {
   font-family: var(--font-ibm-plex-mono), monospace;
+}
+
+.draft-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-faint);
 }

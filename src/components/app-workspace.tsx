@@ -532,28 +532,28 @@ export function AppWorkspace() {
 
   if (!authChecked) {
     return (
-      <section className="glass-panel mx-auto max-w-xl rounded-[2rem] p-8 shadow-glow">
+      <section className="surface-panel mx-auto max-w-xl rounded-[2rem] p-8">
         <p className="eyebrow">ApplyRocket.AI</p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white">Loading your secure workspace...</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-300">Checking your session and restoring the workspaces that belong to your account.</p>
+        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-heading">Loading your secure workspace...</h1>
+        <p className="mt-3 text-sm leading-6 text-body">Checking your session and restoring the workspaces that belong to your account.</p>
       </section>
     );
   }
 
   if (!authUser) {
     return (
-      <section className="glass-panel mx-auto max-w-xl rounded-[2rem] p-8 shadow-glow">
+      <section className="surface-panel mx-auto max-w-xl rounded-[2rem] p-8">
         <p className="eyebrow">ApplyRocket.AI</p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white">Secure sign-in for your saved workspaces</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-300">
+        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-heading">Secure sign-in for your saved workspaces</h1>
+        <p className="mt-3 text-sm leading-6 text-body">
           Your account now protects saved drafts and workspace recovery. Passwords are stored as one-way hashes, never plain text.
         </p>
 
         <div className="mt-6 grid grid-cols-2 gap-3">
-          <button className={`secondary-button ${authMode === "login" ? "border-cyan-300/60 text-white" : ""}`} onClick={() => setAuthMode("login")} type="button">
+          <button className={`secondary-button ${authMode === "login" ? "is-active" : ""}`} onClick={() => setAuthMode("login")} type="button">
             Sign in
           </button>
-          <button className={`secondary-button ${authMode === "register" ? "border-cyan-300/60 text-white" : ""}`} onClick={() => setAuthMode("register")} type="button">
+          <button className={`secondary-button ${authMode === "register" ? "is-active" : ""}`} onClick={() => setAuthMode("register")} type="button">
             Create account
           </button>
         </div>
@@ -576,14 +576,14 @@ export function AppWorkspace() {
           </button>
         </form>
 
-        <p className="mt-4 text-sm text-slate-300">{authMessage}</p>
+        <p className="mt-4 text-sm text-body">{authMessage}</p>
       </section>
     );
   }
 
   return (
     <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-      <section className="glass-panel space-y-6 rounded-[2rem] p-6 shadow-glow">
+      <section className="surface-panel space-y-6 rounded-[2rem] p-6">
         <div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="eyebrow">ApplyRocket.AI</p>
@@ -591,26 +591,26 @@ export function AppWorkspace() {
               Sign out
             </button>
           </div>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white">
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-heading">
             Upload your application materials, generate a cover letter, and rewrite it in place.
           </h1>
-          <p className="mt-3 max-w-md text-sm leading-6 text-slate-300">
+          <p className="mt-3 max-w-md text-sm leading-6 text-body">
             Signed in as {authUser.email}. Your saved workspaces are only visible to your account.
           </p>
         </div>
 
-        <label className="upload-zone block cursor-pointer rounded-3xl border border-dashed border-white/15 p-5 transition hover:border-cyan-300/60 hover:bg-white/5">
+        <label className="upload-zone surface-sunken block cursor-pointer rounded-3xl border border-dashed p-5 transition">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-white">Upload CV and supporting files</p>
-              <p className="mt-1 text-xs text-slate-400">PDF, DOCX, TXT, MD, and similar documents.</p>
+              <p className="text-sm font-medium text-heading">Upload CV and supporting files</p>
+              <p className="mt-1 text-xs text-muted">PDF, DOCX, TXT, MD, and similar documents.</p>
             </div>
-            <span className="rounded-full bg-cyan-400/15 px-3 py-1 text-xs font-medium text-cyan-200">Browse</span>
+            <span className="bg-accent-soft rounded-full px-3 py-1 text-xs font-medium">Browse</span>
           </div>
           <input className="sr-only" multiple type="file" onChange={handleUpload} />
         </label>
-        <p className="text-xs leading-5 text-slate-400">{getUploadLimitMessage()}</p>
-        {uploadError ? <p className="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4 text-sm text-rose-200">{uploadError}</p> : null}
+        <p className="text-xs leading-5 text-muted">{getUploadLimitMessage()}</p>
+        {uploadError ? <p className="danger-banner rounded-2xl p-4 text-sm">{uploadError}</p> : null}
 
         <div className="space-y-4">
           <Field label="Target role">
@@ -635,11 +635,11 @@ export function AppWorkspace() {
           </Field>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+        <div className="surface-inset rounded-3xl border p-4">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-white">Saved workspaces</p>
-              <p className="text-xs text-slate-400">Server-backed recovery for the workspaces attached to your account.</p>
+              <p className="text-sm font-medium text-heading">Saved workspaces</p>
+              <p className="text-xs text-muted">Server-backed recovery for the workspaces attached to your account.</p>
             </div>
             <button className="secondary-button text-xs" type="button" onClick={createWorkspace}>
               Save as new
@@ -651,19 +651,19 @@ export function AppWorkspace() {
               workspaceList.map((workspace) => (
                 <button
                   key={workspace.id}
-                  className="block w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-left text-sm text-slate-200 hover:border-cyan-300/50"
+                  className="workspace-row surface-sunken block w-full rounded-2xl border px-4 py-3 text-left text-sm text-body"
                   type="button"
                   onClick={() => loadWorkspace(workspace.id)}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-medium text-white">{workspace.brief.company || "Untitled workspace"}</span>
-                    <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{workspace.id.slice(0, 8)}</span>
+                    <span className="font-medium text-heading">{workspace.brief.company || "Untitled workspace"}</span>
+                    <span className="text-[11px] uppercase tracking-[0.2em] text-faint">{workspace.id.slice(0, 8)}</span>
                   </div>
-                  <p className="mt-1 text-xs text-slate-400">{workspace.brief.role}</p>
+                  <p className="mt-1 text-xs text-muted">{workspace.brief.role}</p>
                 </button>
               ))
             ) : (
-              <p className="rounded-2xl border border-dashed border-white/10 p-3 text-xs text-slate-400">No saved workspaces yet. Click save to create one.</p>
+              <p className="border-subtle rounded-2xl border border-dashed p-3 text-xs text-muted">No saved workspaces yet. Click save to create one.</p>
             )}
           </div>
         </div>
@@ -684,35 +684,35 @@ export function AppWorkspace() {
           </button>
         </div>
 
-        <p className={`text-sm ${generationStatus === "error" ? "text-rose-300" : "text-slate-400"}`}>{statusMessage}</p>
+        <p className={`text-sm ${generationStatus === "error" ? "text-danger" : "text-muted"}`}>{statusMessage}</p>
 
         <div>
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">Uploaded files</h2>
-            <span className="text-xs text-slate-500">{documents.length}/8</span>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-body">Uploaded files</h2>
+            <span className="text-xs text-faint">{documents.length}/8</span>
           </div>
 
           <div className="mt-3 space-y-3">
             {documents.length ? (
               documents.map((document) => (
-                <article key={document.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <article key={document.id} className="surface-inset rounded-2xl border p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="text-sm font-medium text-white">{document.name}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.2em] text-cyan-200">{document.kind}</p>
+                      <p className="text-sm font-medium text-heading">{document.name}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.2em] text-accent">{document.kind}</p>
                     </div>
-                    <button className="text-xs text-slate-400 hover:text-white" onClick={() => removeDocument(document.id)} type="button">
+                    <button className="text-xs text-muted hover:text-heading" onClick={() => removeDocument(document.id)} type="button">
                       Remove
                     </button>
                   </div>
-                  <div className="mt-3 flex items-center gap-3 text-xs text-slate-400">
+                  <div className="mt-3 flex items-center gap-3 text-xs text-muted">
                     <span>{formatFileSize(document.size)}</span>
                     <span>{document.type || "unknown type"}</span>
                   </div>
                 </article>
               ))
             ) : (
-              <p className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-slate-400">
+              <p className="border-subtle rounded-2xl border border-dashed p-4 text-sm text-muted">
                 No files uploaded yet. Start with your CV, then add any supporting documents you want the agent to use.
               </p>
             )}
@@ -720,12 +720,12 @@ export function AppWorkspace() {
         </div>
       </section>
 
-      <section className="glass-panel flex min-h-[760px] flex-col rounded-[2rem] p-6 shadow-glow">
+      <section className="surface-panel flex min-h-[760px] flex-col rounded-[2rem] p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="eyebrow">Editable draft</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white">{draft.title}</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">{draft.summary}</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-heading">{draft.title}</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-body">{draft.summary}</p>
           </div>
           <div className="flex gap-3">
             <button className="secondary-button" onClick={copyDraft} type="button">
@@ -737,24 +737,24 @@ export function AppWorkspace() {
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-          <p className="font-medium text-white">Current document summary</p>
-          <p className="mt-2 whitespace-pre-wrap text-slate-300">{buildDocumentContextSummary(documents)}</p>
+        <div className="surface-inset mt-6 rounded-2xl border p-4 text-sm text-body">
+          <p className="font-medium text-heading">Current document summary</p>
+          <p className="mt-2 whitespace-pre-wrap text-body">{buildDocumentContextSummary(documents)}</p>
         </div>
 
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           {draft.bullets.map((bullet) => (
-            <div key={bullet} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+            <div key={bullet} className="surface-inset rounded-2xl border px-4 py-3 text-sm text-body">
               {bullet}
             </div>
           ))}
         </div>
 
-        <div className="mt-6 flex-1 rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-4">
+        <div className="surface-sunken mt-6 flex-1 rounded-[1.75rem] border p-4">
           <RichTextEditor value={editedContent} onChange={setEditedContent} templates={draftTemplatesForBrief(brief.role, brief.company)} />
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
           <span>{providerLabel(draft.provider)}</span>
           <span>{hasHydrated && draft.generatedAt ? `Last generated ${new Date(draft.generatedAt).toLocaleString()}` : "Last generated -"}</span>
           <span>Sync: {syncStatus}</span>
@@ -767,7 +767,7 @@ export function AppWorkspace() {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block space-y-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{label}</span>
+      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-muted">{label}</span>
       {children}
     </label>
   );

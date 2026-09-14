@@ -51,7 +51,7 @@ export function RichTextEditor({ value, onChange, templates }: RichTextEditorPro
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/5 p-2">
+      <div className="surface-inset flex flex-wrap gap-2 rounded-2xl border p-2">
         <ToolbarButton label="Bold" onClick={() => exec("bold")} />
         <ToolbarButton label="Italic" onClick={() => exec("italic")} />
         <ToolbarButton label="Underline" onClick={() => exec("underline")} />
@@ -70,21 +70,21 @@ export function RichTextEditor({ value, onChange, templates }: RichTextEditorPro
 
       <div
         ref={editorRef}
-        className="draft-editor min-h-[520px] rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-5 text-[15px] leading-7 text-slate-100 outline-none"
+        className="draft-editor surface-sunken min-h-[520px] rounded-[1.75rem] border p-5 text-[15px] leading-7 text-heading outline-none"
         contentEditable
         onInput={emitChange}
         role="textbox"
         suppressContentEditableWarning
       />
 
-      <p className="text-xs text-slate-400">Word-style formatting is enabled. You can still paste plain text and edit everything directly.</p>
+      <p className="text-xs text-muted">Word-style formatting is enabled. You can still paste plain text and edit everything directly.</p>
     </div>
   );
 }
 
 function ToolbarButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200" type="button" onClick={onClick}>
+    <button className="surface-inset rounded-full border px-3 py-2 text-xs font-medium text-body transition hover:text-heading" type="button" onClick={onClick}>
       {label}
     </button>
   );
