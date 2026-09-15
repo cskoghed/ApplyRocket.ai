@@ -1,5 +1,5 @@
 import { extractUploadedText } from "./document-extraction";
-import type { DocumentKind, UploadedDocument } from "./types";
+import type { DocumentDraft, DocumentKind } from "./types";
 
 const MAX_PREVIEW_CHARS = 2_000;
 const TEXT_FILE_PATTERN = /\.(txt|md|markdown|json|csv|rtf|html|xml)$/i;
@@ -69,11 +69,10 @@ export function createSecureDocumentId(): string {
   throw new Error("Secure random ID generation is unavailable in this browser.");
 }
 
-export async function createDocumentRecord(file: File, kind: DocumentKind): Promise<UploadedDocument> {
+export async function createDocumentDraft(file: File, kind: DocumentKind): Promise<DocumentDraft> {
   const extractedText = await extractUploadedText(file);
 
   return {
-    id: createSecureDocumentId(),
     name: file.name,
     kind,
     type: file.type || "application/octet-stream",
@@ -95,7 +94,7 @@ export async function readFilePreview(file: File): Promise<string> {
   }
 }
 
-type LegacyDocumentSummaryInput = Pick<UploadedDocument, "name" | "kind" | "extractedText"> & { preview?: string };
+type LegacyDocumentSummaryInput = { name: string; kind: DocumentKind; extractedText: string; preview?: string };
 
 export function summarizeDocuments(documents: LegacyDocumentSummaryInput[]): string {
   return documents
@@ -107,7 +106,7 @@ export function summarizeDocuments(documents: LegacyDocumentSummaryInput[]): str
     .join("\n\n");
 }
 
-export function buildDocumentContextSummary(documents: Array<Pick<UploadedDocument, "name" | "kind" | "type" | "extractedText"> & { preview?: string }>): string {
+export function buildDocumentContextSummary(documents: Array<{ name: string; kind: DocumentKind; type: string; extractedText: string; preview?: string }>): string {
   if (!documents.length) {
     return "No supporting documents were uploaded.";
   }

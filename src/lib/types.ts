@@ -1,13 +1,28 @@
 export type DocumentKind = "cv" | "attachment";
 
-export type UploadedDocument = {
+/**
+ * A document persisted in a user's document library, bound to their account.
+ * Identified by `id` so applications can reference it without duplicating it.
+ */
+export type DocumentRecord = {
   id: string;
   name: string;
   kind: DocumentKind;
   type: string;
   size: number;
   extractedText: string;
+  createdAt: string;
+  updatedAt: string;
 };
+
+export type StoredDocumentRecord = DocumentRecord & {
+  ownerId: string;
+};
+
+export type NewDocumentInput = Pick<DocumentRecord, "name" | "kind" | "type" | "size" | "extractedText">;
+
+/** A document as extracted client-side, before it has been saved to the library. */
+export type DocumentDraft = NewDocumentInput;
 
 export type JobBrief = {
   role: string;
@@ -19,7 +34,7 @@ export type JobBrief = {
 
 export type CoverLetterGenerationInput = {
   brief: JobBrief;
-  documents: Array<Pick<UploadedDocument, "name" | "kind" | "type" | "size" | "extractedText">>;
+  documents: Array<Pick<DocumentRecord, "name" | "kind" | "type" | "size" | "extractedText">>;
 };
 
 export type CoverLetterDraft = {
@@ -31,20 +46,25 @@ export type CoverLetterDraft = {
   generatedAt: string;
 };
 
-export type WorkspaceSnapshot = {
+/**
+ * An application's saved state. `documentIds` references documents in the
+ * user's document library rather than embedding full document payloads, so a
+ * single uploaded document can be attached to multiple applications.
+ */
+export type ApplicationSnapshot = {
   brief: JobBrief;
   draft: CoverLetterDraft;
-  documents: UploadedDocument[];
+  documentIds: string[];
   editedContent: string;
 };
 
-export type WorkspaceRecord = WorkspaceSnapshot & {
+export type ApplicationRecord = ApplicationSnapshot & {
   id: string;
   createdAt: string;
   updatedAt: string;
 };
 
-export type StoredWorkspaceRecord = WorkspaceRecord & {
+export type StoredApplicationRecord = ApplicationRecord & {
   ownerId?: string;
 };
 

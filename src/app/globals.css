@@ -167,11 +167,11 @@ body {
   border-color: var(--accent-soft-border);
 }
 
-.workspace-row {
+.application-row {
   transition: border-color 160ms ease, transform 160ms ease;
 }
 
-.workspace-row:hover {
+.application-row:hover {
   border-color: var(--accent-soft-border);
   transform: translateY(-1px);
 }

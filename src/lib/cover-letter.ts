@@ -48,28 +48,6 @@ export function normalizeGeneratedContent(content: string): string {
   return trimmed.replace(/^```(?:text)?\s*/i, "").replace(/\s*```$/i, "").trim();
 }
 
-export function draftTemplatesForBrief(role: string, company: string): Array<{ id: string; label: string; content: string }> {
-  const companyClause = company ? ` at ${company}` : "";
-
-  return [
-    {
-      id: "opening",
-      label: "Opening",
-      content: `Dear hiring team,\n\nI am excited to apply for the ${role} position${companyClause}. My background has prepared me to contribute quickly and thoughtfully from day one.\n\n`
-    },
-    {
-      id: "evidence",
-      label: "Impact paragraph",
-      content: `One of my strengths is turning ambiguity into action. In previous roles, I have built momentum across cross-functional teams, aligned stakeholders, and delivered measurable outcomes.\n\n`
-    },
-    {
-      id: "closing",
-      label: "Closing",
-      content: `I would welcome the opportunity to discuss how I can help your team. Thank you for your time and consideration.\n\nSincerely,\nYour Name`
-    }
-  ];
-}
-
 export class CoverLetterGenerationError extends Error {
   constructor(message: string) {
     super(message);

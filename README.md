@@ -4,20 +4,24 @@ ApplyRocket.AI is a job-application assistant that lets users upload a CV and su
 
 ## Authentication
 
-The app now requires an account to access saved workspaces and cover-letter generation.
+The app now requires an account to access saved applications, your document library, and cover-letter generation.
 
 - Users sign up with email + password.
 - Passwords are stored as one-way `scrypt` hashes with per-user salts.
 - Sessions are stored server-side and sent through an HTTP-only cookie.
-- Existing browser-bound workspaces from the earlier cookie-based model are migrated into the user account at sign-in.
+- Existing browser-bound applications from the earlier cookie-based model are migrated into the user account at sign-in.
+
+## Documents
+
+Uploaded CVs and supporting files are extracted client-side, then saved to a document library bound to your account. Each document gets its own id, so the same document can be attached to multiple applications by selecting it in the UI. Deleting a document removes it from the library entirely; unattaching it from an application only removes the association.
 
 ## Database
 
-Auth, sessions, and workspaces now use a SQLite database instead of JSON files.
+Auth, sessions, documents, and applications now use a SQLite database instead of JSON files.
 
 - By default the app stores data in `data/applyrocket.db`.
 - Override the path with `DATABASE_PATH` in `.env.local` if needed.
-- On first startup, existing JSON records from `data/auth` and `data/workspaces` are migrated into SQLite automatically.
+- On first startup, existing JSON records from `data/auth` and `data/workspaces` are migrated into SQLite automatically (including turning each application's inline documents into library entries).
 
 ## LLM setup
 

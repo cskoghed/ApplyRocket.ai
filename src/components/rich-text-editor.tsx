@@ -1,26 +1,17 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
-import { safeHtmlFromText } from "@/lib/editor-utils";
-
-type Template = {
-  id: string;
-  label: string;
-  content: string;
-};
 
 type RichTextEditorProps = {
   value: string;
   onChange: (value: string) => void;
-  templates: Template[];
 };
 
 function exec(command: string, value?: string) {
   document.execCommand(command, false, value);
 }
 
-export function RichTextEditor({ value, onChange, templates }: RichTextEditorProps) {
+export function RichTextEditor({ value, onChange }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -43,12 +34,6 @@ export function RichTextEditor({ value, onChange, templates }: RichTextEditorPro
     onChange(editor.innerHTML);
   }
 
-  function insertTemplate(template: Template) {
-    editorRef.current?.focus();
-    exec("insertHTML", safeHtmlFromText(template.content));
-    emitChange();
-  }
-
   return (
     <div className="space-y-4">
       <div className="surface-inset flex flex-wrap gap-2 rounded-2xl border p-2">
@@ -58,14 +43,6 @@ export function RichTextEditor({ value, onChange, templates }: RichTextEditorPro
         <ToolbarButton label="Bullet list" onClick={() => exec("insertUnorderedList")} />
         <ToolbarButton label="Numbered list" onClick={() => exec("insertOrderedList")} />
         <ToolbarButton label="Clear" onClick={() => exec("removeFormat")} />
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {templates.map((template) => (
-          <button key={template.id} className="secondary-button text-xs" type="button" onClick={() => insertTemplate(template)}>
-            {template.label}
-          </button>
-        ))}
       </div>
 
       <div

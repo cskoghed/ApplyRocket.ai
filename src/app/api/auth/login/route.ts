@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { clearLegacyApplicationOwnerCookie, getLegacyApplicationOwnerId } from "@/lib/application-owner";
+import { migrateApplicationOwner } from "@/lib/application-store";
 import { attachSessionCookie, AuthError, authenticateUser, createUserSession } from "@/lib/auth";
-import { clearLegacyWorkspaceOwnerCookie, getLegacyWorkspaceOwnerId } from "@/lib/workspace-owner";
-import { migrateWorkspaceOwner } from "@/lib/workspace-store";
+import { migrateDocumentOwner } from "@/lib/document-store";
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
@@ -20,14 +21,15 @@ export async function POST(request: Request) {
 
   try {
     const user = await authenticateUser(candidate.email, candidate.password);
-    const legacyOwnerId = await getLegacyWorkspaceOwnerId();
+    const legacyOwnerId = await getLegacyApplicationOwnerId();
     if (legacyOwnerId) {
-      await migrateWorkspaceOwner(legacyOwnerId, user.id);
+      await migrateApplicationOwner(legacyOwnerId, user.id);
+      await migrateDocumentOwner(legacyOwnerId, user.id);
     }
 
     const sessionToken = await createUserSession(user.id);
     const response = attachSessionCookie(NextResponse.json({ user }), sessionToken);
-    return clearLegacyWorkspaceOwnerCookie(response);
+    return clearLegacyApplicationOwnerCookie(response);
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
