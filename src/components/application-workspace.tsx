@@ -4,7 +4,7 @@ import type { ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { htmlToPlainText, plainTextToHtml } from "@/lib/editor-utils";
-import { createDocumentDraft, detectDocumentKind, getUploadLimitMessage, validateUpload } from "@/lib/file-utils";
+import { createDocumentRecord, detectDocumentKind, getUploadLimitMessage, validateUpload } from "@/lib/file-utils";
 import type { ApplicationRecord, ApplicationSnapshot, AuthUser, CoverLetterDraft, DocumentRecord, JobBrief } from "@/lib/types";
 
 type GenerationStatus = "idle" | "loading" | "success" | "error";
@@ -387,7 +387,7 @@ export function ApplicationWorkspace() {
     }
 
     const startIndex = documentLibrary.length;
-    const drafts = await Promise.all(files.map((file, index) => createDocumentDraft(file, detectDocumentKind(file, startIndex + index === 0))));
+    const drafts = await Promise.all(files.map((file, index) => createDocumentRecord(file, detectDocumentKind(file, startIndex + index === 0))));
 
     setUploadError(null);
 
