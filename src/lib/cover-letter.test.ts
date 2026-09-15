@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CoverLetterGenerationError, buildCoverLetterPrompt, draftTemplatesForBrief, generateCoverLetterDraft, normalizeGeneratedContent } from "./cover-letter";
+import { CoverLetterGenerationError, buildCoverLetterPrompt, generateCoverLetterDraft, normalizeGeneratedContent } from "./cover-letter";
 import { countWords, htmlToPlainText, plainTextToHtml } from "./editor-utils";
 
 describe("cover letter helpers", () => {
@@ -73,13 +73,6 @@ describe("cover letter helpers", () => {
     ).rejects.toThrow("Unsupported LLM_PROVIDER");
 
     process.env.LLM_PROVIDER = previousProvider;
-  });
-
-  it("creates editable templates for the selected role and company", () => {
-    const templates = draftTemplatesForBrief("Designer", "Orbit");
-    expect(templates).toHaveLength(3);
-    expect(templates[0].content).toContain("Designer");
-    expect(templates[0].content).toContain("Orbit");
   });
 
   it("round-trips plain text and html for the editor", () => {

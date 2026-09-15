@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import type { StoredWorkspaceRecord } from "./types";
+import type { DocumentKind } from "./types";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -23,6 +24,26 @@ type StoredSessionRecord = {
   tokenHash: string;
   createdAt: string;
   expiresAt: string;
+};
+
+type LegacyDocumentRecord = {
+  id?: string;
+  name: string;
+  kind: DocumentKind;
+  type: string;
+  size: number;
+  extractedText?: string;
+};
+
+type LegacyApplicationRecord = {
+  id: string;
+  ownerId?: string;
+  brief: unknown;
+  draft: unknown;
+  documents?: LegacyDocumentRecord[];
+  editedContent: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type DatabaseCache = {
@@ -49,8 +70,8 @@ function getLegacyAuthDir() {
   return configuredDataDir ? path.resolve(configuredDataDir) : path.join(process.cwd(), "data", "auth");
 }
 
-function getLegacyWorkspaceDir() {
-  const configuredDataDir = process.env.WORKSPACE_DATA_DIR;
+function getLegacyApplicationDir() {
+  const configuredDataDir = process.env.APPLICATION_DATA_DIR;
   return configuredDataDir ? path.resolve(configuredDataDir) : path.join(process.cwd(), "data", "workspaces");
 }
 
@@ -99,20 +120,33 @@ function ensureSchema(database: NodeSqliteDatabase) {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS workspaces (
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      type TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      extracted_text TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS applications (
       id TEXT PRIMARY KEY,
       owner_id TEXT,
       brief_json TEXT NOT NULL,
       draft_json TEXT NOT NULL,
-      documents_json TEXT NOT NULL,
+      document_ids_json TEXT NOT NULL,
       edited_content TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
-    CREATE INDEX IF NOT EXISTS idx_workspaces_owner_id ON workspaces(owner_id);
-    CREATE INDEX IF NOT EXISTS idx_workspaces_updated_at ON workspaces(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_documents_owner_id ON documents(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_applications_owner_id ON applications(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_applications_updated_at ON applications(updated_at DESC);
   `);
 }
 
@@ -130,8 +164,12 @@ function migrateJsonStorage(database: NodeSqliteDatabase) {
     INSERT OR IGNORE INTO sessions (id, user_id, token_hash, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?)
   `);
-  const insertWorkspace = database.prepare(`
-    INSERT OR IGNORE INTO workspaces (id, owner_id, brief_json, draft_json, documents_json, edited_content, created_at, updated_at)
+  const insertDocument = database.prepare(`
+    INSERT OR IGNORE INTO documents (id, owner_id, name, kind, type, size, extracted_text, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertApplication = database.prepare(`
+    INSERT OR IGNORE INTO applications (id, owner_id, brief_json, draft_json, document_ids_json, edited_content, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const setMigrationState = database.prepare("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)");
@@ -156,18 +194,35 @@ function migrateJsonStorage(database: NodeSqliteDatabase) {
       insertSession.run(record.id, record.userId, record.tokenHash, record.createdAt, record.expiresAt);
     }
 
-    for (const filePath of listJsonFiles(getLegacyWorkspaceDir())) {
-      const record = parseJsonFile<StoredWorkspaceRecord>(filePath);
+    for (const filePath of listJsonFiles(getLegacyApplicationDir())) {
+      const record = parseJsonFile<LegacyApplicationRecord>(filePath);
       if (!record) {
         continue;
       }
 
-      insertWorkspace.run(
+      const documentIds: string[] = [];
+      for (const legacyDocument of record.documents ?? []) {
+        const documentId = legacyDocument.id ?? randomUUID();
+        insertDocument.run(
+          documentId,
+          record.ownerId ?? null,
+          legacyDocument.name,
+          legacyDocument.kind,
+          legacyDocument.type,
+          legacyDocument.size,
+          legacyDocument.extractedText ?? "",
+          record.createdAt,
+          record.updatedAt
+        );
+        documentIds.push(documentId);
+      }
+
+      insertApplication.run(
         record.id,
         record.ownerId ?? null,
         JSON.stringify(record.brief),
         JSON.stringify(record.draft),
-        JSON.stringify(record.documents),
+        JSON.stringify(documentIds),
         record.editedContent,
         record.createdAt,
         record.updatedAt

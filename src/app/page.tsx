@@ -1,4 +1,4 @@
-import { AppWorkspace } from "@/components/app-workspace";
+import { ApplicationWorkspace } from "@/components/application-workspace";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function Page() {
@@ -18,7 +18,7 @@ export default function Page() {
           </div>
         </header>
 
-        <AppWorkspace />
+        <ApplicationWorkspace />
       </div>
     </main>
   );
