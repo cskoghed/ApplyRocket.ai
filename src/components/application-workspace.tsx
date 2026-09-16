@@ -738,18 +738,7 @@ export function ApplicationWorkspace() {
     <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
       <section className="surface-panel space-y-6 rounded-[2rem] p-6">
         <div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="eyebrow">ApplyRocket.AI</p>
-            <button className="secondary-button text-xs" onClick={signOut} type="button">
-              Sign out
-            </button>
-          </div>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-heading">
-            Upload your application materials, generate a cover letter, and rewrite it in place.
-          </h1>
-          <p className="mt-3 max-w-md text-sm leading-6 text-body">
-            Signed in as {authUser.email}. Your document library and saved applications are only visible to your account.
-          </p>
+          <p className="eyebrow">ApplyRocket.AI</p>
         </div>
 
         <div>

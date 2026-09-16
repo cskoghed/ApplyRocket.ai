@@ -54,3 +54,37 @@ export type AuthUser = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type ApplicationSnapshot = {
+  brief: JobBrief;
+  draft: CoverLetterDraft;
+  documentIds: string[];
+  editedContent: string;
+};
+
+export type ApplicationRecord = ApplicationSnapshot & {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StoredApplicationRecord = ApplicationRecord & {
+  ownerId?: string;
+};
+
+export type DocumentRecord = {
+  id: string;
+  name: string;
+  kind: DocumentKind;
+  type: string;
+  size: number;
+  extractedText: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StoredDocumentRecord = DocumentRecord & {
+  ownerId?: string;
+};
+
+export type NewDocumentInput = Pick<DocumentRecord, "name" | "kind" | "type" | "size" | "extractedText">;
