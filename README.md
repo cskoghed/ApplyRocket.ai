@@ -35,3 +35,16 @@ Cover letter generation now calls a configured LLM provider API directly.
    - `GEMINI_API_KEY` / `GEMINI_MODEL`
 
 If the selected provider is missing credentials or returns an error, the API route responds with an explicit error so the UI can surface it.
+
+## Cover letter chat
+
+The draft editor has a chat panel for iterating on a generated cover letter.
+
+- Type an instruction such as "make the closing more confident" and press Enter.
+- Select text in the editor first to scope the change to that passage only. The panel shows the captured highlight, and the AI is instructed that no other sentence of the letter may change. With no highlight, the model names the exact text it is replacing in a `<find>` block, and the server splices the change into the letter so the rest of the draft is untouched. A revision that would not change anything is dropped, and an answer too short to be the whole letter without an anchor is refused rather than applied over the draft.
+- **The pen** on one of your own messages reworks it into a new branch of the conversation: the edited instruction is re-run against the letter as it stood before the original message, while the previous wording and its answer stay reachable through the `n/m` branch switcher. Switching branches restores the letter that belongs to that branch. Each turn stores its letter snapshot, and the conversation structure lives alongside the transcript in `chat_json`.
+- **The trash** removes a message together with everything that came after it on that branch and moves the letter back to how it was before that turn, so deleting an instruction undoes the change it asked for. The other branches at that point are untouched.
+- While a passage is highlighted, the editor keeps showing it highlighted even after focus moves to the chat box (CSS Custom Highlight API, so the letter's markup and the caret are never touched). The highlight never doubles up with the browser's own selection, and after the AI rewrites a highlighted passage the rewritten text takes over the highlight, so the next instruction is scoped to the new wording. The captured passage is read out of the editor's own text, so highlights that span a paragraph break behave like any other.
+- Replies stream token by token from `POST /api/cover-letter-chat` as Server-Sent Events (`delta`, `revision`, `done`, `error`), so the assistant text appears as it is written.
+- Applied changes can be reverted with **Undo change**, and the transcript is saved with the application in the `chat_json` column of the `applications` table (existing databases are upgraded in place; transcripts saved before branching are chained into a tree when they are read).
+- The chat reuses `LLM_PROVIDER` and the provider keys above; OpenAI, Anthropic, and Gemini all stream through the same route.

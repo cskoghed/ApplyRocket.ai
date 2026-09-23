@@ -31,6 +31,41 @@ export type CoverLetterDraft = {
   generatedAt: string;
 };
 
+export type CoverLetterChatRole = "user" | "assistant";
+
+export type CoverLetterChatRevision = {
+  scope: "selection" | "document";
+  text: string;
+};
+
+export type CoverLetterChatMessage = {
+  id: string;
+  role: CoverLetterChatRole;
+  content: string;
+  createdAt: string;
+  /** Highlighted passage a user turn was scoped to. */
+  selection?: string;
+  /** Set on assistant turns that changed the letter. */
+  revision?: CoverLetterChatRevision;
+  /**
+   * Conversation structure: the message this turn follows, or null when it starts the conversation.
+   * Editing a message creates an additional message with the same parentId, which makes the two
+   * sibling messages the branches of that point in the conversation.
+   */
+  parentId: string | null;
+  /**
+   * Cover letter (rich text HTML) as it stood for this turn: for a user turn the state its instruction
+   * was applied to, and for an assistant turn the state after the change. Absent for transcripts saved
+   * before branching existed.
+   */
+  letter?: string;
+};
+
+export type CoverLetterChatTurn = {
+  role: CoverLetterChatRole;
+  content: string;
+};
+
 export type WorkspaceSnapshot = {
   brief: JobBrief;
   draft: CoverLetterDraft;
@@ -60,6 +95,9 @@ export type ApplicationSnapshot = {
   draft: CoverLetterDraft;
   documentIds: string[];
   editedContent: string;
+  chatMessages?: CoverLetterChatMessage[];
+  /** The branch of the chat transcript the user is currently looking at. */
+  chatActiveLeafId?: string | null;
 };
 
 export type ApplicationRecord = ApplicationSnapshot & {

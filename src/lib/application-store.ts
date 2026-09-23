@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { getDatabase } from "./database";
-import type { ApplicationRecord, ApplicationSnapshot, StoredApplicationRecord } from "./types";
+import { normalizeChatTree, trimChatTree, type ChatBranchTree } from "./chat-branches";
+import type { ApplicationRecord, ApplicationSnapshot, CoverLetterChatMessage, StoredApplicationRecord } from "./types";
 
 export class ApplicationAccessError extends Error {
   constructor(message: string) {
@@ -14,10 +15,34 @@ function toApplicationRecord(record: StoredApplicationRecord): ApplicationRecord
   return applicationRecord;
 }
 
+/**
+ * `chat_json` holds `{ activeLeafId, messages }`. Transcripts written before branching existed are a
+ * plain array of messages and are upgraded here, so no database migration is needed.
+ */
+function parseChatTree(raw: unknown): ChatBranchTree {
+  if (raw == null) {
+    return { messages: [], activeLeafId: null };
+  }
+
+  try {
+    const parsed = JSON.parse(String(raw)) as unknown;
+    const stored = Array.isArray(parsed) ? { messages: parsed, activeLeafId: null } : (parsed as Record<string, unknown>);
+    const messages = Array.isArray(stored.messages) ? (stored.messages as CoverLetterChatMessage[]) : [];
+
+    return trimChatTree(
+      normalizeChatTree(messages, typeof stored.activeLeafId === "string" ? stored.activeLeafId : null)
+    );
+  } catch {
+    return { messages: [], activeLeafId: null };
+  }
+}
+
 function mapApplicationRow(row: Record<string, unknown> | undefined): StoredApplicationRecord | null {
   if (!row) {
     return null;
   }
+
+  const chat = parseChatTree(row.chat_json);
 
   return {
     id: String(row.id),
@@ -26,6 +51,8 @@ function mapApplicationRow(row: Record<string, unknown> | undefined): StoredAppl
     draft: JSON.parse(String(row.draft_json)) as ApplicationSnapshot["draft"],
     documentIds: JSON.parse(String(row.document_ids_json)) as ApplicationSnapshot["documentIds"],
     editedContent: String(row.edited_content),
+    chatMessages: chat.messages,
+    chatActiveLeafId: chat.activeLeafId,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };
@@ -75,15 +102,18 @@ export async function saveApplicationRecord(id: string, snapshot: ApplicationSna
     throw new ApplicationAccessError("Application not found.");
   }
 
+  const chatTree = trimChatTree(normalizeChatTree(snapshot.chatMessages, snapshot.chatActiveLeafId ?? null));
+
   database.prepare(`
-    INSERT INTO applications (id, owner_id, brief_json, draft_json, document_ids_json, edited_content, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO applications (id, owner_id, brief_json, draft_json, document_ids_json, edited_content, chat_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       owner_id = excluded.owner_id,
       brief_json = excluded.brief_json,
       draft_json = excluded.draft_json,
       document_ids_json = excluded.document_ids_json,
       edited_content = excluded.edited_content,
+      chat_json = excluded.chat_json,
       updated_at = excluded.updated_at
   `).run(
     id,
@@ -92,6 +122,7 @@ export async function saveApplicationRecord(id: string, snapshot: ApplicationSna
     JSON.stringify(snapshot.draft),
     JSON.stringify(snapshot.documentIds),
     snapshot.editedContent,
+    JSON.stringify({ version: 2, activeLeafId: chatTree.activeLeafId, messages: chatTree.messages }),
     existingRecord?.createdAt ?? now,
     now
   );
@@ -102,6 +133,8 @@ export async function saveApplicationRecord(id: string, snapshot: ApplicationSna
     draft: snapshot.draft,
     documentIds: snapshot.documentIds,
     editedContent: snapshot.editedContent,
+    chatMessages: chatTree.messages,
+    chatActiveLeafId: chatTree.activeLeafId,
     createdAt: existingRecord?.createdAt ?? now,
     updatedAt: now
   };

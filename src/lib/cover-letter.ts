@@ -1,7 +1,13 @@
 import type { CoverLetterDraft, CoverLetterGenerationInput } from "./types";
 import { buildDocumentContextSummary, summarizeDocuments } from "./file-utils";
 
-type LlmProvider = Exclude<CoverLetterDraft["provider"], "template">;
+export type LlmProvider = Exclude<CoverLetterDraft["provider"], "template">;
+
+export type ProviderConnection = {
+  provider: LlmProvider;
+  apiKey: string;
+  model: string;
+};
 
 function buildToneGuidance(tone: CoverLetterGenerationInput["brief"]["tone"]): string {
   switch (tone) {
@@ -55,7 +61,7 @@ export class CoverLetterGenerationError extends Error {
   }
 }
 
-function getConfiguredProvider(): LlmProvider {
+export function getConfiguredProvider(): LlmProvider {
   const provider = (process.env.LLM_PROVIDER || "openai").trim().toLowerCase();
   if (provider === "openai" || provider === "anthropic" || provider === "gemini") {
     return provider;
@@ -66,6 +72,41 @@ function getConfiguredProvider(): LlmProvider {
   }
 
   throw new CoverLetterGenerationError("Unsupported LLM_PROVIDER. Use 'openai', 'anthropic', or 'gemini'.");
+}
+
+/**
+ * Resolves the provider, API key, and model before any request is made, so callers can fail
+ * fast with the same configuration errors the draft route already surfaces.
+ */
+export function resolveProviderConnection(): ProviderConnection {
+  const provider = getConfiguredProvider();
+
+  switch (provider) {
+    case "openai": {
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        throw new CoverLetterGenerationError("OPENAI_API_KEY is not configured.");
+      }
+
+      return { provider, apiKey, model: process.env.OPENAI_MODEL || "gpt-4.1-mini" };
+    }
+    case "anthropic": {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        throw new CoverLetterGenerationError("ANTHROPIC_API_KEY is not configured.");
+      }
+
+      return { provider, apiKey, model: process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest" };
+    }
+    case "gemini": {
+      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      if (!apiKey) {
+        throw new CoverLetterGenerationError("GEMINI_API_KEY (or GOOGLE_API_KEY) is not configured.");
+      }
+
+      return { provider, apiKey, model: process.env.GEMINI_MODEL || "gemini-2.0-flash" };
+    }
+  }
 }
 
 function buildDraft(input: CoverLetterGenerationInput, content: string, provider: LlmProvider): CoverLetterDraft {

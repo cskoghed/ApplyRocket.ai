@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { listApplicationRecords, saveApplicationRecord } from "@/lib/application-store";
+import { isCoverLetterChatMessageList } from "@/lib/chat-messages";
 import { readDocumentRecords } from "@/lib/document-store";
 import type { ApplicationSnapshot } from "@/lib/types";
 
@@ -15,7 +16,11 @@ function isValidSnapshotShape(candidate: Record<string, unknown>): candidate is 
       candidate.draft &&
       Array.isArray(candidate.documentIds) &&
       candidate.documentIds.every((id) => typeof id === "string") &&
-      typeof candidate.editedContent === "string"
+      typeof candidate.editedContent === "string" &&
+      (candidate.chatMessages === undefined || isCoverLetterChatMessageList(candidate.chatMessages)) &&
+      (candidate.chatActiveLeafId === undefined ||
+        candidate.chatActiveLeafId === null ||
+        typeof candidate.chatActiveLeafId === "string")
   );
 }
 

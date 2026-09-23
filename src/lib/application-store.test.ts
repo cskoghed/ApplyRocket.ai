@@ -1,10 +1,36 @@
 import { promises as fs } from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ApplicationAccessError, deleteApplicationRecord, listApplicationRecords, migrateApplicationOwner, readApplicationRecord, saveApplicationRecord } from "./application-store";
+import { normalizeChatTree } from "./chat-branches";
 import { getDatabase, resetDatabaseForTests } from "./database";
-import type { ApplicationSnapshot } from "./types";
+import type { ApplicationSnapshot, CoverLetterChatMessage } from "./types";
+
+const require = createRequire(import.meta.url);
+const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+
+const chatMessages: CoverLetterChatMessage[] = [
+  {
+    id: "message-1",
+    role: "user",
+    content: "make the introduction more personal",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    selection: "I am excited to apply.",
+    parentId: null,
+    letter: "<p>Dear team,</p>"
+  },
+  {
+    id: "message-2",
+    role: "assistant",
+    content: "Made the opening warmer.",
+    createdAt: "2026-01-01T00:00:01.000Z",
+    revision: { scope: "selection", text: "I would love to join the team." },
+    parentId: "message-1",
+    letter: "<p>Dear team, I would love to join the team.</p>"
+  }
+];
 
 const snapshot: ApplicationSnapshot = {
   brief: {
@@ -113,8 +139,7 @@ describe("application store ownership", () => {
     await expect(deleteApplicationRecord("application-a", "owner-a")).resolves.toBe(true);
   });
 
-  it("migrates legacy json applications into sqlite", async () => {
-    const legacyApplicationDir = process.env.APPLICATION_DATA_DIR!;
+  it("migrates legacy json applications into sqlite", async () => {    const legacyApplicationDir = process.env.APPLICATION_DATA_DIR!;
     await fs.mkdir(legacyApplicationDir, { recursive: true });
     await fs.writeFile(
       path.join(legacyApplicationDir, "application-1.json"),
@@ -150,5 +175,97 @@ describe("application store ownership", () => {
     expect(JSON.parse(String(applicationRow.document_ids_json))).toEqual(["document-1"]);
     expect(String(documentRow.owner_id)).toBe("owner-a");
     expect(String(documentRow.name)).toBe("cv.pdf");
+  });
+
+  it("persists the cover letter chat transcript with the application", async () => {
+    await saveApplicationRecord("application-a", { ...snapshot, chatMessages, chatActiveLeafId: "message-2" }, "owner-a");
+
+    const record = await readApplicationRecord("application-a", "owner-a");
+
+    expect(record?.chatMessages).toEqual(chatMessages);
+    expect(record?.chatActiveLeafId).toBe("message-2");
+  });
+
+  it("scrolls back to the branch of the transcript that was on screen", async () => {
+    const branched = normalizeChatTree([...chatMessages, { ...chatMessages[1]!, id: "message-3" }], "message-3");
+
+    await saveApplicationRecord("application-a", { ...snapshot, chatMessages: branched.messages, chatActiveLeafId: branched.activeLeafId }, "owner-a");
+
+    const record = await readApplicationRecord("application-a", "owner-a");
+
+    expect(record?.chatActiveLeafId).toBe("message-3");
+  });
+
+  it("reads transcripts saved before the tree was stored", async () => {
+    const database = getDatabase();
+    database
+      .prepare(
+        "INSERT INTO applications (id, owner_id, brief_json, draft_json, document_ids_json, edited_content, chat_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      )
+      .run(
+        "application-flat-chat",
+        "owner-a",
+        JSON.stringify(snapshot.brief),
+        JSON.stringify(snapshot.draft),
+        "[]",
+        "Hello",
+        JSON.stringify([
+          { id: "legacy-1", role: "user", content: "tighten it", createdAt: "2026-01-01T00:00:00.000Z" },
+          { id: "legacy-2", role: "assistant", content: "Tightened.", createdAt: "2026-01-01T00:00:01.000Z" }
+        ]),
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-01T00:00:00.000Z"
+      );
+
+    const record = await readApplicationRecord("application-flat-chat", "owner-a");
+
+    expect(record?.chatMessages?.map((message) => message.parentId)).toEqual([null, "legacy-1"]);
+    expect(record?.chatActiveLeafId).toBe("legacy-2");
+  });
+
+  it("defaults to an empty transcript when the snapshot has none", async () => {
+    await saveApplicationRecord("application-a", snapshot, "owner-a");
+
+    await expect(readApplicationRecord("application-a", "owner-a")).resolves.toMatchObject({ chatMessages: [] });
+  });
+
+  it("adds the chat column to databases created before the chat feature", async () => {
+    const databasePath = process.env.DATABASE_PATH!;
+    const legacyDatabase = new DatabaseSync(databasePath);
+
+    legacyDatabase.exec(`
+      CREATE TABLE applications (
+        id TEXT PRIMARY KEY,
+        owner_id TEXT,
+        brief_json TEXT NOT NULL,
+        draft_json TEXT NOT NULL,
+        document_ids_json TEXT NOT NULL,
+        edited_content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    legacyDatabase
+      .prepare(
+        "INSERT INTO applications (id, owner_id, brief_json, draft_json, document_ids_json, edited_content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      )
+      .run(
+        "application-legacy",
+        "owner-a",
+        JSON.stringify(snapshot.brief),
+        JSON.stringify(snapshot.draft),
+        "[]",
+        "Hello",
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-01T00:00:00.000Z"
+      );
+    legacyDatabase.close();
+
+    resetDatabaseForTests();
+
+    const record = await readApplicationRecord("application-legacy", "owner-a");
+
+    expect(record?.editedContent).toBe("Hello");
+    expect(record?.chatMessages).toEqual([]);
   });
 });

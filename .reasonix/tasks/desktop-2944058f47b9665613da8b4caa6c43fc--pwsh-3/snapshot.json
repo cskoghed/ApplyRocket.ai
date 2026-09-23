@@ -1,0 +1,1 @@
+{"schema_version":1,"task_id":"desktop-2944058f47b9665613da8b4caa6c43fc--pwsh-3","job_id":"pwsh-3","session_id":"desktop-2944058f47b9665613da8b4caa6c43fc","state":"cancelled","runtime_state":"exited","runtime_lease_until":"0001-01-01T00:00:00Z","version":17,"created_at":"2026-09-23T18:20:30.0625014+02:00","updated_at":"2026-09-23T18:21:46.1954141+02:00","error_code":"job_failed"}

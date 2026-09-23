@@ -27,6 +27,7 @@
   --accent-soft-bg: rgba(67, 56, 202, 0.08);
   --accent-soft-border: rgba(67, 56, 202, 0.22);
   --accent-soft-text: #4338ca;
+  --highlight-passage: rgba(67, 56, 202, 0.22);
 
   --danger: #b91c1c;
   --danger-border: rgba(185, 28, 28, 0.28);
@@ -64,6 +65,7 @@
   --accent-soft-bg: rgba(139, 143, 245, 0.14);
   --accent-soft-border: rgba(139, 143, 245, 0.32);
   --accent-soft-text: #c2c4fb;
+  --highlight-passage: rgba(139, 143, 245, 0.28);
 
   --danger: #f28b82;
   --danger-border: rgba(242, 139, 130, 0.32);
@@ -312,4 +314,43 @@ textarea:focus {
 .draft-editor:empty::before {
   content: attr(data-placeholder);
   color: var(--text-faint);
+}
+
+/* Cover letter chat */
+
+.chat-scroll {
+  min-height: 12rem;
+  max-height: 46vh;
+}
+
+.chat-bubble {
+  border: 1px solid transparent;
+  border-radius: 1.25rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+
+.chat-bubble-user {
+  border-color: var(--accent-soft-border);
+  background: var(--accent-soft-bg);
+  color: var(--accent-soft-text);
+}
+
+.chat-bubble-assistant {
+  border-color: var(--surface-inset-border);
+  background: var(--surface-inset);
+  color: var(--text-body);
+}
+
+.chat-cursor::after {
+  content: "\258d";
+  margin-left: 0.15rem;
+  animation: chat-cursor-pulse 1s steps(2, start) infinite;
+}
+
+@keyframes chat-cursor-pulse {
+  to {
+    opacity: 0;
+  }
 }

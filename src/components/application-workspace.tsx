@@ -1,16 +1,45 @@
 "use client";
 
 import type { ChangeEvent, DragEvent, FormEvent, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
-import { RichTextEditor } from "@/components/rich-text-editor";
-import { htmlToPlainText, plainTextToHtml } from "@/lib/editor-utils";
-import { createDocumentRecord, detectDocumentKind, getUploadLimitMessage, validateUpload } from "@/lib/file-utils";
-import type { ApplicationRecord, ApplicationSnapshot, AuthUser, CoverLetterDraft, DocumentRecord, JobBrief } from "@/lib/types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CoverLetterChatPanel } from "@/components/cover-letter-chat-panel";
+import { RichTextEditor, type EditorSelection, type RichTextEditorApi } from "@/components/rich-text-editor";
+import {
+  appendChatMessage,
+  chatBranchMap,
+  chatPath,
+  deleteChatMessage,
+  editChatMessage,
+  normalizeChatTree,
+  switchChatBranch,
+  trimChatTree,
+  type ChatBranchTree
+} from "@/lib/chat-branches";
+import { toChatHistoryTurns } from "@/lib/chat-messages";
+import { countWords, htmlToPlainText, plainTextToHtml } from "@/lib/editor-utils";
+import { createDocumentRecord, createSecureDocumentId, detectDocumentKind, getUploadLimitMessage, validateUpload } from "@/lib/file-utils";
+import { consumeSseStream, parseSseData } from "@/lib/sse";
+import type {
+  ApplicationRecord,
+  ApplicationSnapshot,
+  AuthUser,
+  CoverLetterChatMessage,
+  CoverLetterChatRevision,
+  CoverLetterChatTurn,
+  CoverLetterDraft,
+  DocumentRecord,
+  JobBrief
+} from "@/lib/types";
 
 type GenerationStatus = "idle" | "loading" | "success" | "error";
 type AuthMode = "login" | "register";
 type ApplicationListItem = { id: string; updatedAt: string; brief: JobBrief };
 type LocalApplicationState = ApplicationSnapshot & { id?: string };
+type RevisionScope = CoverLetterChatRevision["scope"];
+type ChatDeltaPayload = { text?: string };
+type ChatRevisionPayload = { scope?: RevisionScope; text?: string };
+type ChatDonePayload = { message?: string; revision?: { scope: RevisionScope; text: string } | null };
+type ChatErrorPayload = { error?: string };
 
 const MAX_DOCUMENTS_PER_APPLICATION = 8;
 const STORAGE_KEY = "applyrocket.application.v1";
@@ -94,11 +123,36 @@ export function ApplicationWorkspace() {
   const [authPending, setAuthPending] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [authMessage, setAuthMessage] = useState("Create an account or sign in to access your saved applications.");
+  const [chatTree, setChatTree] = useState<ChatBranchTree>({ messages: [], activeLeafId: null });
+  const [chatStreamText, setChatStreamText] = useState("");
+  const [chatPending, setChatPending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [editorSelection, setEditorSelection] = useState<EditorSelection | null>(null);
+  const editorApiRef = useRef<RichTextEditorApi | null>(null);
+  const chatAbortRef = useRef<AbortController | null>(null);
 
   const selectedDocuments = useMemo(
     () => selectedDocumentIds.map((id) => documentLibrary.find((document) => document.id === id)).filter((document): document is DocumentRecord => Boolean(document)),
     [documentLibrary, selectedDocumentIds]
   );
+
+  /** The branch of the conversation on screen, oldest turn first. */
+  const chatMessages = useMemo(() => chatPath(chatTree), [chatTree]);
+  const chatBranches = useMemo(() => chatBranchMap(chatTree.messages), [chatTree.messages]);
+
+  function resetChatTransientState() {
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setChatStreamText("");
+    setChatPending(false);
+    setChatError(null);
+    setEditorSelection(null);
+  }
+
+  function resetChatState() {
+    resetChatTransientState();
+    setChatTree({ messages: [], activeLeafId: null });
+  }
 
   function resetApplicationState() {
     setSelectedDocumentIds([]);
@@ -110,6 +164,7 @@ export function ApplicationWorkspace() {
     setUploadError(null);
     setSyncStatus("idle");
     setApplicationList([]);
+    resetChatState();
   }
 
   function applyApplicationRecord(application: ApplicationRecord) {
@@ -118,6 +173,8 @@ export function ApplicationWorkspace() {
     setDraft(application.draft ?? defaultDraft);
     setEditedContent(plainTextToHtml(application.editedContent ?? application.draft?.content ?? defaultDraft.content));
     setApplicationId(application.id);
+    resetChatTransientState();
+    setChatTree(trimChatTree(normalizeChatTree(application.chatMessages, application.chatActiveLeafId ?? null)));
   }
 
   async function handleUnauthorized(message: string) {
@@ -197,6 +254,7 @@ export function ApplicationWorkspace() {
       setDraft(restored.draft ?? defaultDraft);
       setEditedContent(plainTextToHtml(restored.editedContent ?? restored.draft?.content ?? defaultDraft.content));
       setApplicationId(restored.id ?? storedApplicationId ?? null);
+      setChatTree(trimChatTree(normalizeChatTree(restored.chatMessages, restored.chatActiveLeafId ?? null)));
       setStatusMessage("Application restored from this account's last session.");
     } else {
       resetApplicationState();
@@ -278,7 +336,9 @@ export function ApplicationWorkspace() {
       brief,
       draft,
       documentIds: selectedDocumentIds,
-      editedContent: htmlToPlainText(editedContent)
+      editedContent: htmlToPlainText(editedContent),
+      chatMessages: chatTree.messages,
+      chatActiveLeafId: chatTree.activeLeafId
     };
 
     const storageKey = getApplicationStorageKey(authUser.id);
@@ -318,7 +378,7 @@ export function ApplicationWorkspace() {
 
     return () => window.clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authUser, brief, selectedDocumentIds, draft, editedContent, hasHydrated, applicationId]);
+  }, [authUser, brief, selectedDocumentIds, draft, editedContent, chatTree, hasHydrated, applicationId]);
 
   const canGenerate = useMemo(() => {
     return brief.role.trim().length > 0 && brief.company.trim().length > 0 && brief.description.trim().length > 0;
@@ -492,6 +552,7 @@ export function ApplicationWorkspace() {
     setEditedContent(plainTextToHtml(defaultDraft.content));
     setGenerationStatus("idle");
     setUploadError(null);
+    resetChatState();
     setStatusMessage("Application reset.");
   }
 
@@ -675,12 +736,300 @@ export function ApplicationWorkspace() {
         setApplicationId(null);
         setGenerationStatus("idle");
         setSyncStatus("idle");
+        resetChatState();
       }
 
       setStatusMessage("Application deleted.");
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Unable to delete application.");
     }
+  }
+
+  async function sendChatMessage(instruction: string) {
+    if (!authUser) {
+      await handleUnauthorized("Sign in to chat about this cover letter.");
+      return;
+    }
+
+    if (chatPending) {
+      return;
+    }
+
+    const letter = htmlToPlainText(editedContent);
+    if (!letter.trim()) {
+      setChatError("Generate or write a draft before asking for changes.");
+      return;
+    }
+
+    const capturedSelection = editorSelection;
+    const userMessage: CoverLetterChatMessage = {
+      id: createSecureDocumentId(),
+      role: "user",
+      content: instruction,
+      createdAt: new Date().toISOString(),
+      selection: capturedSelection?.text,
+      parentId: chatTree.activeLeafId,
+      letter: editedContent
+    };
+
+    setChatTree((current) => appendChatMessage(current, userMessage));
+
+    await runChatTurn({
+      instruction,
+      userMessage,
+      history: toChatHistoryTurns(chatMessages),
+      baseLetter: editedContent,
+      selection: capturedSelection
+    });
+  }
+
+  /**
+   * Runs one conversation turn: streams the answer to `instruction`, applies any revision on top of
+   * `baseLetter`, and records the assistant turn as a child of `userMessage`.
+   */
+  async function runChatTurn({
+    instruction,
+    userMessage,
+    history,
+    baseLetter,
+    selection
+  }: {
+    instruction: string;
+    userMessage: CoverLetterChatMessage;
+    history: CoverLetterChatTurn[];
+    baseLetter: string;
+    selection: EditorSelection | null;
+  }) {
+    setChatPending(true);
+    setChatError(null);
+    setChatStreamText("");
+
+    const controller = new AbortController();
+    chatAbortRef.current = controller;
+
+    let replyText = "";
+    let failure: string | null = null;
+    const streamedRevisions: CoverLetterChatRevision[] = [];
+
+    try {
+      const response = await fetch("/api/cover-letter-chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          brief,
+          letter: htmlToPlainText(baseLetter),
+          selection: userMessage.selection ?? null,
+          instruction,
+          history
+        }),
+        signal: controller.signal
+      });
+
+      if (response.status === 401) {
+        await handleUnauthorized("Your session expired. Sign in again.");
+        return;
+      }
+
+      if (!response.ok || !response.body) {
+        const payload = (await response.json().catch(() => ({}))) as ChatErrorPayload;
+        throw new Error(payload.error || "The chat request failed.");
+      }
+
+      await consumeSseStream(response, (event) => {
+        if (event.event === "delta") {
+          const payload = parseSseData<ChatDeltaPayload>(event.data);
+          if (payload?.text) {
+            replyText += payload.text;
+            setChatStreamText(replyText);
+          }
+          return;
+        }
+
+        if (event.event === "revision") {
+          const payload = parseSseData<ChatRevisionPayload>(event.data);
+          if (payload?.scope && payload.text) {
+            streamedRevisions.push({ scope: payload.scope, text: payload.text });
+          }
+          return;
+        }
+
+        if (event.event === "done") {
+          const payload = parseSseData<ChatDonePayload>(event.data);
+          if (payload) {
+            if (payload.message) {
+              replyText = payload.message;
+            }
+            if (payload.revision) {
+              streamedRevisions.push(payload.revision);
+            }
+          }
+          return;
+        }
+
+        if (event.event === "error") {
+          const payload = parseSseData<ChatErrorPayload>(event.data);
+          throw new Error(payload?.error || "The cover letter revision failed.");
+        }
+      });
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        failure = error instanceof Error && error.message ? error.message : "The chat request failed.";
+      }
+    } finally {
+      chatAbortRef.current = null;
+      setChatPending(false);
+      setChatStreamText("");
+    }
+
+    if (controller.signal.aborted) {
+      return;
+    }
+
+    let appliedRevision: CoverLetterChatRevision | null = null;
+    let appliedSelection: EditorSelection | null = null;
+    const revision = streamedRevisions.length ? streamedRevisions[streamedRevisions.length - 1]! : null;
+
+    if (revision && revision.text.trim()) {
+      const editorApi = editorApiRef.current;
+      let applied = false;
+
+      if (editorApi) {
+        if (revision.scope === "selection" && selection) {
+          appliedSelection = editorApi.replaceSelection(selection, revision.text);
+          applied = Boolean(appliedSelection);
+        } else if (revision.scope === "document") {
+          editorApi.replaceDocument(revision.text);
+          applied = true;
+        }
+      }
+
+      if (applied) {
+        appliedRevision = revision;
+        // A rewritten passage keeps its highlight, so the next instruction is scoped to the new wording.
+        setEditorSelection(appliedSelection);
+      } else if (!editorApi) {
+        failure = "The letter editor is not ready, so the change was not applied. Try again.";
+      } else {
+        failure = "The highlighted passage moved since you selected it, so the change was not applied. Highlight it again and resend.";
+      }
+    }
+
+    const letterAfterTurn = editorApiRef.current?.getHtml() || baseLetter;
+
+    setChatTree((current) =>
+      appendChatMessage(current, {
+        id: createSecureDocumentId(),
+        role: "assistant",
+        content: replyText || (failure ? "I could not complete that change." : "Done."),
+        createdAt: new Date().toISOString(),
+        revision: appliedRevision ?? undefined,
+        parentId: userMessage.id,
+        letter: letterAfterTurn
+      })
+    );
+
+    if (failure) {
+      setChatError(failure);
+      setStatusMessage(failure);
+      return;
+    }
+
+    setChatError(null);
+    setStatusMessage(appliedRevision ? "Cover letter updated from chat." : "Assistant replied.");
+  }
+
+  /**
+   * Rewrites one of your own messages as a new branch: the current wording and its answer stay put,
+   * and the instruction is run again from the letter as it stood before that turn.
+   */
+  async function handleEditChatMessage(id: string, content: string) {
+    if (!authUser || chatPending) {
+      return;
+    }
+
+    const instruction = content.trim();
+    if (!instruction) {
+      return;
+    }
+
+    const original = chatTree.messages.find((message) => message.id === id);
+    if (!original || original.role !== "user") {
+      return;
+    }
+
+    const baseLetter = original.letter ?? editedContent;
+    const { tree, message: edited } = editChatMessage(chatTree, id, {
+      id: createSecureDocumentId(),
+      content: instruction,
+      createdAt: new Date().toISOString(),
+      letter: baseLetter
+    });
+
+    if (!edited) {
+      return;
+    }
+
+    setChatTree(tree);
+    setChatError(null);
+    setEditorSelection(null);
+    setEditedContent(baseLetter);
+
+    await runChatTurn({
+      instruction,
+      userMessage: edited,
+      history: toChatHistoryTurns(chatPath({ messages: tree.messages, activeLeafId: edited.parentId })),
+      baseLetter,
+      selection: edited.selection ? { text: edited.selection, start: 0, end: 0 } : null
+    });
+  }
+
+  /** Shows another branch of the conversation and restores the letter that belongs to it. */
+  function handleSwitchBranch(id: string) {
+    if (chatPending) {
+      return;
+    }
+
+    const tree = switchChatBranch(chatTree, id);
+    setChatTree(tree);
+    setEditorSelection(null);
+
+    const node = tree.messages.find((message) => message.id === tree.activeLeafId) ?? null;
+    if (node?.letter && node.letter !== editedContent) {
+      setEditedContent(node.letter);
+      setStatusMessage("Switched branches and restored the letter from that point.");
+      return;
+    }
+
+    setStatusMessage("Switched branches.");
+  }
+
+  /**
+   * Removes a message together with everything that came after it, and moves the letter back to how
+   * it was before that turn — deleting an instruction undoes the change it asked for.
+   */
+  function handleDeleteChatMessage(id: string) {
+    if (chatPending) {
+      return;
+    }
+
+    const { tree, letter } = deleteChatMessage(chatTree, id);
+    if (tree === chatTree) {
+      return;
+    }
+
+    setChatTree(tree);
+    setEditorSelection(null);
+    setChatError(null);
+
+    if (letter && letter !== editedContent) {
+      setEditedContent(letter);
+      setStatusMessage("Message deleted and the letter reverted to how it was before it.");
+      return;
+    }
+
+    setStatusMessage("Message deleted.");
   }
 
   if (!authChecked) {
@@ -735,7 +1084,7 @@ export function ApplicationWorkspace() {
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+    <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
       <section className="surface-panel space-y-6 rounded-[2rem] p-6">
         <div>
           <p className="eyebrow">ApplyRocket.AI</p>
@@ -897,15 +1246,40 @@ export function ApplicationWorkspace() {
         </div>
 
         <div className="surface-sunken mt-6 flex-1 rounded-[1.75rem] border p-4">
-          <RichTextEditor value={editedContent} onChange={setEditedContent} />
+          <RichTextEditor
+            value={editedContent}
+            onChange={setEditedContent}
+            apiRef={editorApiRef}
+            onSelectionChange={setEditorSelection}
+            highlight={editorSelection}
+          />
         </div>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
           <span>{providerLabel(draft.provider)}</span>
+          <span>{editorSelection ? `Highlighted: ${countWords(editorSelection.text)} words` : "No highlight"}</span>
           <span>{hasHydrated && draft.generatedAt ? `Last generated ${new Date(draft.generatedAt).toLocaleString()}` : "Last generated -"}</span>
           <span>Sync: {syncStatus}</span>
         </div>
       </section>
+
+      <CoverLetterChatPanel
+        messages={chatMessages}
+        branches={chatBranches}
+        streamingText={chatStreamText}
+        pending={chatPending}
+        error={chatError}
+        selection={editorSelection}
+        onClearSelection={() => setEditorSelection(null)}
+        onSend={(instruction) => {
+          void sendChatMessage(instruction);
+        }}
+        onEditMessage={(id, content) => {
+          void handleEditChatMessage(id, content);
+        }}
+        onDeleteMessage={handleDeleteChatMessage}
+        onSwitchBranch={handleSwitchBranch}
+      />
     </div>
   );
 }

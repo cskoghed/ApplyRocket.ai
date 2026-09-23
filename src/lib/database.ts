@@ -139,6 +139,7 @@ function ensureSchema(database: NodeSqliteDatabase) {
       draft_json TEXT NOT NULL,
       document_ids_json TEXT NOT NULL,
       edited_content TEXT NOT NULL,
+      chat_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -148,6 +149,19 @@ function ensureSchema(database: NodeSqliteDatabase) {
     CREATE INDEX IF NOT EXISTS idx_applications_owner_id ON applications(owner_id);
     CREATE INDEX IF NOT EXISTS idx_applications_updated_at ON applications(updated_at DESC);
   `);
+}
+
+/**
+ * `CREATE TABLE IF NOT EXISTS` leaves databases created before the cover-letter chat feature
+ * without the `chat_json` column, so add it in place when it is missing.
+ */
+function ensureApplicationChatColumn(database: NodeSqliteDatabase) {
+  const columns = database.prepare("PRAGMA table_info(applications)").all() as Array<{ name?: unknown }>;
+  if (columns.some((column) => String(column.name) === "chat_json")) {
+    return;
+  }
+
+  database.exec("ALTER TABLE applications ADD COLUMN chat_json TEXT NOT NULL DEFAULT '[]'");
 }
 
 function migrateJsonStorage(database: NodeSqliteDatabase) {
@@ -241,6 +255,7 @@ function createDatabase(databasePath: string) {
   ensureDatabaseDir(databasePath);
   const database = new DatabaseSync(databasePath) as NodeSqliteDatabase;
   ensureSchema(database);
+  ensureApplicationChatColumn(database);
   migrateJsonStorage(database);
   return database;
 }
